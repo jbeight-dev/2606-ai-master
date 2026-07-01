@@ -1,0 +1,15 @@
+# AI Wiki Assistant - Google Gemini LangGraph
+# Python 3.9+
+
+# LangGraph
+langgraph>=0.2.0
+
+# Google Gemini API
+google-genai
+
+# FastAPI (선택 - FastAPI 연동 시 필요)
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
+# 환경변수
+python-dotenv>=1.0.0

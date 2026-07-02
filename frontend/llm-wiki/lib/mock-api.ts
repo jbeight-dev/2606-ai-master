@@ -314,54 +314,25 @@ export async function rejectReviewItem(id: string): Promise<void> {
   await delay(300);
 }
 
+const ASSISTANT_API_URL = "http://0.0.0.0:8000/api/v1/chat";
+
 export async function sendChatMessage(message: string): Promise<ChatMessage> {
-  await delay(1000);
+  const res = await fetch(ASSISTANT_API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: "anonymous", question: message }),
+  });
 
-  const responses: Record<string, { content: string; sources: ChatMessage["sources"] }> = {
-    default: {
-      content: `"${message}"에 대한 답변입니다. 주문관리시스템에서 관련 내용을 찾았습니다. POST /orders API를 통해 신규 주문을 생성할 수 있으며, orders 테이블에 저장됩니다.`,
-      sources: [
-        { id: "s1", type: "API", title: "POST /orders", nodeId: "api-1" },
-        { id: "s2", type: "Table", title: "orders", nodeId: "tbl-1" },
-      ],
-    },
-  };
-
-  const lower = message.toLowerCase();
-  let response = responses.default;
-
-  if (lower.includes("주문") || lower.includes("order")) {
-    response = {
-      content: "주문(Order)은 고객이 상품을 구매하기 위해 생성하는 거래 단위입니다. POST /orders API로 생성하며 orders 테이블에 저장됩니다. 주문 상태는 pending → confirmed → shipped → delivered 순으로 전환됩니다.",
-      sources: [
-        { id: "s1", type: "API", title: "POST /orders", nodeId: "api-1" },
-        { id: "s2", type: "Table", title: "orders", nodeId: "tbl-1" },
-        { id: "s3", type: "Glossary", title: "주문(Order)", nodeId: "gls-1" },
-      ],
-    };
-  } else if (lower.includes("api") || lower.includes("엔드포인트")) {
-    response = {
-      content: "현재 Wiki에 등록된 API는 POST /orders, GET /orders/{id}, PATCH /orders/{id}/status 등이 있습니다. 각 API의 파라미터와 응답 예시를 API 탐색기에서 확인할 수 있습니다.",
-      sources: [
-        { id: "s1", type: "API", title: "POST /orders", nodeId: "api-1" },
-        { id: "s2", type: "API", title: "GET /orders/{id}", nodeId: "api-1-1" },
-      ],
-    };
-  } else if (lower.includes("테이블") || lower.includes("table") || lower.includes("db")) {
-    response = {
-      content: "orders 테이블은 주문의 마스터 데이터를 저장합니다. 관련 테이블로 order_items(주문 항목), order_payments(결제 내역)가 있습니다. 모두 BIGINT 기반 PK를 사용합니다.",
-      sources: [
-        { id: "s1", type: "Table", title: "orders", nodeId: "tbl-1" },
-        { id: "s2", type: "Table", title: "order_items", nodeId: "tbl-1-1" },
-      ],
-    };
+  if (!res.ok) {
+    throw new Error(`서버 오류: ${res.status}`);
   }
+
+  const data = await res.json();
 
   return {
     id: `msg-${Date.now()}`,
     role: "assistant",
-    content: response.content,
-    sources: response.sources,
+    content: data.answer ?? "답변을 가져오지 못했습니다.",
     timestamp: new Date().toISOString(),
   };
 }

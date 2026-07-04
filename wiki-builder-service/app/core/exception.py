@@ -21,6 +21,11 @@ class DocumentAnalysisException(WikiBuilderException):
         super().__init__(message, status_code=500)
 
 
+class RateLimitException(WikiBuilderException):
+    def __init__(self, message: str = "AI 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요."):
+        super().__init__(message, status_code=429)
+
+
 async def wiki_builder_exception_handler(request: Request, exc: WikiBuilderException) -> JSONResponse:
     logger.error(f"WikiBuilderException: {exc.message}")
     return JSONResponse(

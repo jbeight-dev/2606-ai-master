@@ -44,3 +44,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Wiki Builder Service
+wiki-builder-service/app/storage/uploads/

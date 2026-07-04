@@ -1,4 +1,5 @@
-import { SourceTag } from "@/components/common/SourceTag";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ChatMessage as ChatMessageType } from "@/types/llm-wiki";
 
 interface ChatMessageProps {
@@ -23,25 +24,18 @@ export function ChatMessage({ message }: ChatMessageProps) {
         <div
           className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
             isUser
-              ? "bg-primary text-primary-foreground rounded-tr-sm"
-              : "bg-card border border-border text-foreground rounded-tl-sm shadow-sm"
+              ? "bg-primary text-primary-foreground rounded-tr-sm whitespace-pre-wrap"
+              : message.error
+              ? "bg-destructive/10 border border-destructive/30 text-destructive rounded-tl-sm"
+              : "bg-card border border-border text-foreground rounded-tl-sm shadow-sm prose prose-sm dark:prose-invert max-w-none prose-p:my-1.5 prose-ul:my-1.5"
           }`}
         >
-          {message.content}
+          {isUser ? (
+            message.content
+          ) : (
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+          )}
         </div>
-
-        {message.sources?.length && (
-          <div className="flex flex-wrap gap-1.5 mt-1">
-            {message.sources.map((src) => (
-              <SourceTag
-                key={src.id}
-                type={src.type}
-                title={src.title}
-                nodeId={src.nodeId}
-              />
-            ))}
-          </div>
-        )}
 
         <span className="text-xs text-muted-foreground">
           {new Date(message.timestamp).toLocaleTimeString("ko-KR", {

@@ -1,22 +1,20 @@
-import { Check, Loader2, AlertCircle, Clock } from "lucide-react";
-import type { AnalysisStep } from "@/types/llm-wiki";
+import { Check, Loader2, Clock } from "lucide-react";
+import type { SimulatedAnalysisStep } from "@/types/llm-wiki";
 
 interface AnalysisProgressProps {
-  steps: AnalysisStep[];
+  steps: SimulatedAnalysisStep[];
 }
 
-const STEP_ICON: Record<AnalysisStep["status"], React.ReactNode> = {
+const STEP_ICON: Record<SimulatedAnalysisStep["status"], React.ReactNode> = {
   completed: <Check className="h-4 w-4 text-white" />,
   in_progress: <Loader2 className="h-4 w-4 text-white animate-spin" />,
   pending: <Clock className="h-4 w-4 text-muted-foreground" />,
-  failed: <AlertCircle className="h-4 w-4 text-white" />,
 };
 
-const STEP_BG: Record<AnalysisStep["status"], string> = {
+const STEP_BG: Record<SimulatedAnalysisStep["status"], string> = {
   completed: "bg-green-500",
   in_progress: "bg-primary",
   pending: "bg-muted",
-  failed: "bg-destructive",
 };
 
 export function AnalysisProgress({ steps }: AnalysisProgressProps) {
@@ -48,9 +46,7 @@ export function AnalysisProgress({ steps }: AnalysisProgressProps) {
                     ? "text-muted-foreground"
                     : step.status === "in_progress"
                     ? "text-primary"
-                    : step.status === "completed"
-                    ? "text-foreground"
-                    : "text-destructive"
+                    : "text-foreground"
                 }`}
               >
                 {step.label}

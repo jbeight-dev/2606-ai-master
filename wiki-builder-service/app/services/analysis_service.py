@@ -8,7 +8,7 @@ from app.services.embedding_service import embedding_service
 from app.services.qdrant_service import qdrant_service
 from app.schemas.response import AnalyzeDocumentResponse
 from app.core.logger import logger
-from app.core.exception import DocumentAnalysisException
+from app.core.exception import DocumentAnalysisException, RateLimitException
 
 
 class DocumentAnalysisService:
@@ -86,6 +86,9 @@ class DocumentAnalysisService:
                 elapsed_ms=elapsed_ms,
             )
 
+        except RateLimitException:
+            document_service.mark_failed(db, document)
+            raise
         except DocumentAnalysisException:
             document_service.mark_failed(db, document)
             raise

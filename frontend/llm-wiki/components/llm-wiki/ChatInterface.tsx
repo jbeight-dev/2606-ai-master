@@ -1,67 +1,111 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Send, Loader2 } from "lucide-react";
+import { Send, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatMessage } from "@/components/llm-wiki/ChatMessage";
-import { sendChatMessage, INITIAL_CHAT_MESSAGES } from "@/lib/mock-api";
+import { useSendChatMessage } from "@/lib/api";
+import { getOrCreateUserId } from "@/lib/user-id";
 import type { ChatMessage as ChatMessageType } from "@/types/llm-wiki";
 
-const QUICK_PROMPTS = [
-  "주문 생성 API는 어떻게 되나요?",
-  "orders 테이블 구조를 알려주세요",
-  "주문 상태 전환 흐름을 설명해줘",
-  "결제 관련 API 목록 보여줘",
+const SUGGESTIONS = [
+  "설비조회 화면은 어떤 API를 사용하나요?",
+  "LOT이 무엇인가요?",
+  "Yield는 어디서 확인하나요?",
 ];
 
 export function ChatInterface() {
-  const [messages, setMessages] = useState<ChatMessageType[]>(INITIAL_CHAT_MESSAGES);
+  const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const sendMutation = useSendChatMessage();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, sendMutation.isPending]);
 
   async function handleSend(text?: string) {
-    const content = (text ?? input).trim();
-    if (!content || loading) return;
+    const question = (text ?? input).trim();
+    if (!question || sendMutation.isPending) return;
 
     const userMsg: ChatMessageType = {
-      id: `msg-${Date.now()}-user`,
+      id: crypto.randomUUID(),
       role: "user",
-      content,
+      content: question,
       timestamp: new Date().toISOString(),
     };
-
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
-    setLoading(true);
 
-    try {
-      const reply = await sendChatMessage(content);
-      setMessages((prev) => [...prev, reply]);
-    } finally {
-      setLoading(false);
-    }
+    sendMutation.mutate(
+      { user_id: getOrCreateUserId(), question },
+      {
+        onSuccess: (res) => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: res.answer ?? "답변을 생성하지 못했습니다.",
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+        },
+        onError: () => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: "답변을 가져오지 못했습니다. 잠시 후 다시 시도해주세요.",
+              timestamp: new Date().toISOString(),
+              error: true,
+            },
+          ]);
+        },
+      }
+    );
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Messages */}
-      <ScrollArea className="flex-1 px-4">
+      <ScrollArea className="flex-1 min-h-0 px-4">
         <div className="py-4 space-y-4">
+          {messages.length === 0 && (
+            <div className="text-center py-14 px-4">
+              <div className="w-13.5 h-13.5 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-4">
+                <MessageCircle className="h-6 w-6" />
+              </div>
+              <p className="font-semibold text-foreground text-lg">무엇이든 물어보세요</p>
+              <p className="text-sm text-muted-foreground mt-1.5 max-w-sm mx-auto">
+                등록된 Wiki를 근거로 답변합니다.
+              </p>
+              <div className="flex flex-col gap-2 max-w-md mx-auto mt-6">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => handleSend(s)}
+                    className="text-left bg-card border border-border rounded-lg px-4 py-2.5 text-sm text-foreground hover:bg-accent/40 transition-colors"
+                  >
+                    ↗ {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {messages.map((msg) => (
             <ChatMessage key={msg.id} message={msg} />
           ))}
 
-          {loading && (
+          {sendMutation.isPending && (
             <div className="flex justify-start">
-              <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:-0.3s]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:-0.15s]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 animate-bounce" />
               </div>
             </div>
           )}
@@ -70,36 +114,42 @@ export function ChatInterface() {
         </div>
       </ScrollArea>
 
-      {/* Quick prompts */}
-      <div className="px-4 py-2 flex gap-2 overflow-x-auto scrollbar-none">
-        {QUICK_PROMPTS.map((prompt) => (
-          <button
-            key={prompt}
-            onClick={() => handleSend(prompt)}
-            disabled={loading}
-            className="shrink-0 px-3 py-1.5 rounded-full border border-border text-xs text-muted-foreground bg-background hover:bg-accent hover:text-foreground transition-colors disabled:opacity-50"
-          >
-            {prompt}
-          </button>
-        ))}
-      </div>
+      {messages.length > 0 && (
+        <div className="px-4 py-2 flex gap-2 overflow-x-auto">
+          {SUGGESTIONS.map((s) => (
+            <button
+              key={s}
+              onClick={() => handleSend(s)}
+              disabled={sendMutation.isPending}
+              className="shrink-0 px-3 py-1.5 rounded-full border border-border text-xs text-muted-foreground bg-background hover:bg-accent hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Input */}
-      <div className="px-4 pb-4 pt-2 flex gap-2 border-t border-border bg-background">
-        <Input
+      <div className="px-4 pb-4 pt-2 flex gap-2 items-end border-t border-border bg-background">
+        <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-          placeholder="Wiki에 대해 자유롭게 질문하세요..."
-          disabled={loading}
-          className="flex-1"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSend();
+            }
+          }}
+          placeholder="설비 위키에 대해 물어보세요..."
+          rows={1}
+          disabled={sendMutation.isPending}
+          className="flex-1 max-h-32"
         />
-        <Button onClick={() => handleSend()} disabled={loading || !input.trim()} size="icon">
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Send className="h-4 w-4" />
-          )}
+        <Button
+          onClick={() => handleSend()}
+          disabled={sendMutation.isPending || !input.trim()}
+          size="icon"
+        >
+          <Send className="h-4 w-4" />
         </Button>
       </div>
     </div>

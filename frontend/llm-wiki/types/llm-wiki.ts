@@ -1,120 +1,98 @@
-export type DocumentStatus = "analyzing" | "pending_review" | "approved" | "rejected";
+// Knowledge Space
 
-export type WikiCategory = "Systems" | "Screens" | "API" | "Tables" | "Glossary" | "Release";
+export type KnowledgeSpaceStatus = "ACTIVE" | "INACTIVE";
 
-export type SourceTagType = "Screen" | "API" | "Glossary" | "Table";
+export interface KnowledgeSpace {
+  knowledge_space_id: number;
+  name: string;
+  description?: string | null;
+  status: KnowledgeSpaceStatus;
+  created_at?: string;
+}
+
+// Document
+
+export type DocumentType = "USER_MANUAL" | "ERD" | "DATA_CATALOG" | "GLOSSARY" | "UNKNOWN";
+export type DocumentStatus = "UPLOADED" | "ANALYZED" | "FAILED";
 
 export interface Document {
-  id: string;
-  name: string;
-  type: "PDF" | "Word" | "Excel" | "Markdown" | "HTML";
-  size: number;
-  uploadedAt: string;
+  document_id: number;
+  file_name: string;
+  document_type: DocumentType;
   status: DocumentStatus;
-  analysisPct?: number;
+  created_at?: string;
 }
 
-export interface AnalysisStep {
+export interface AnalyzeResult {
+  document_id: number;
+  status: string;
+  wiki_count: number;
+  embedding_count: number;
+  elapsed_ms: number;
+}
+
+// UI-only: purely cosmetic step animation shown while the single blocking
+// analyze request is in flight. Not backed by any server-side progress state.
+export interface SimulatedAnalysisStep {
   id: string;
   label: string;
-  status: "pending" | "in_progress" | "completed" | "failed";
+  status: "pending" | "in_progress" | "completed";
 }
 
-export interface WikiNode {
-  id: string;
-  category: WikiCategory;
+// Wiki
+
+export type WikiStatus = "DRAFT" | "APPROVED" | "REJECTED";
+
+export interface WikiSummary {
+  wiki_id: number;
   title: string;
-  parentId?: string;
-  children?: WikiNode[];
-  meta?: WikiNodeMeta;
-  content?: WikiNodeContent;
+  summary?: string | null;
+  status: WikiStatus;
+  version: number;
+  tags: string[];
 }
 
-export interface WikiNodeMeta {
-  version: string;
-  lastUpdated: string;
-  status: DocumentStatus;
-  relatedDocuments: string[];
+export interface Wiki extends WikiSummary {
+  knowledge_space_id: number;
+  document_id: number;
+  markdown: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
-export interface WikiNodeContent {
-  summary: string;
-  features?: WikiFeature[];
-  apiSpec?: ApiSpec;
-  tableSpec?: TableSpec;
-  faqs?: WikiFaq[];
-  relatedNodes?: RelatedNode[];
-}
-
-export interface WikiFeature {
-  id: string;
+export interface UpdateWikiInput {
   title: string;
-  description: string;
+  summary?: string;
+  markdown: string;
 }
 
-export interface ApiSpec {
-  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-  path: string;
-  description: string;
-  parameters?: ApiParameter[];
-  responseExample?: string;
-}
+// Assistant chat (assistant-service, separate from wiki-builder-service)
 
-export interface ApiParameter {
-  name: string;
-  type: string;
-  required: boolean;
-  description: string;
-}
-
-export interface TableSpec {
-  tableName: string;
-  columns: TableColumn[];
-  description: string;
-}
-
-export interface TableColumn {
-  name: string;
-  type: string;
-  nullable: boolean;
-  description: string;
-}
-
-export interface WikiFaq {
+export interface ChatRequest {
+  user_id: string;
   question: string;
-  answer: string;
 }
 
-export interface RelatedNode {
-  id: string;
-  title: string;
-  category: WikiCategory;
+export interface ChatResponse {
+  success: boolean;
+  intent?: string | null;
+  rewritten_query?: string | null;
+  answer?: string | null;
+  elapsed_ms?: number | null;
 }
 
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
-  sources?: ChatSource[];
   timestamp: string;
+  error?: boolean;
 }
 
-export interface ChatSource {
-  id: string;
-  type: SourceTagType;
-  title: string;
-  nodeId: string;
-}
+// Errors
 
-export interface ReviewItem {
-  id: string;
-  documentId: string;
-  documentName: string;
-  nodeId: string;
-  nodeTitle: string;
-  category: WikiCategory;
-  originalContent: string;
-  aiContent: string;
-  status: "pending" | "approved" | "rejected";
-  reviewedAt?: string;
+export interface ApiErrorBody {
+  success: false;
+  message: string;
+  detail?: unknown;
 }

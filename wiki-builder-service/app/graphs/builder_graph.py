@@ -4,6 +4,7 @@ from langgraph.graph import StateGraph, START, END
 
 from app.core.config import settings
 from app.core.logger import logger
+from app.core.exception import RateLimitException
 from app.prompts.builder_prompt import (
     WIKI_BUILDER_SYSTEM_PROMPT,
     CLASSIFY_DOCUMENT_PROMPT,
@@ -33,7 +34,7 @@ def _get_gemini_client():
 
 
 def call_gemini(system_prompt: str, user_prompt: str, *, temperature: float = 0.0) -> Optional[str]:
-    from google.genai import types
+    from google.genai import errors, types
     client = _get_gemini_client()
     if client is None:
         return None
@@ -47,6 +48,11 @@ def call_gemini(system_prompt: str, user_prompt: str, *, temperature: float = 0.
             ),
         )
         return response.text
+    except errors.APIError as e:
+        logger.error(f"Gemini API error: {e}")
+        if e.code == 429:
+            raise RateLimitException()
+        return None
     except Exception as e:
         logger.error(f"Gemini API error: {e}")
         return None

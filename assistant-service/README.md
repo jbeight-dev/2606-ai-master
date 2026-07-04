@@ -63,7 +63,7 @@ cd assistant-service
 pip install -r requirements.txt
 
 # 서버 시작
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 ### Docker 실행

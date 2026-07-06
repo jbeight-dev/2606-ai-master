@@ -8,7 +8,7 @@ from app.services.embedding_service import embedding_service
 from app.services.qdrant_service import qdrant_service
 from app.schemas.response import AnalyzeDocumentResponse
 from app.core.logger import logger
-from app.core.exception import DocumentAnalysisException, RateLimitException
+from app.core.exception import DocumentAnalysisException, RateLimitException, APIUnavailableException
 
 
 class DocumentAnalysisService:
@@ -30,6 +30,7 @@ class DocumentAnalysisService:
             result = wiki_builder_graph.invoke(
                 knowledge_space_id=document.knowledge_space_id,
                 document_id=document.id,
+                document_name=document.file_name,
                 document_text=document_text,
                 document_type=document.document_type.value,
             )
@@ -87,6 +88,9 @@ class DocumentAnalysisService:
             )
 
         except RateLimitException:
+            document_service.mark_failed(db, document)
+            raise
+        except APIUnavailableException:
             document_service.mark_failed(db, document)
             raise
         except DocumentAnalysisException:

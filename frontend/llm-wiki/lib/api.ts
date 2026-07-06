@@ -11,6 +11,7 @@ import type {
   Wiki,
   WikiSummary,
 } from "@/types/llm-wiki";
+import { useActiveSpace } from "@/lib/active-space";
 
 const WIKI_API_BASE =
   process.env.NEXT_PUBLIC_WIKI_API_BASE_URL ?? "http://localhost:8000";
@@ -64,6 +65,12 @@ export function createKnowledgeSpace(input: { name: string; description?: string
 
 export function listKnowledgeSpaces() {
   return wiki<{ items: KnowledgeSpace[] }>("/api/v1/knowledge-spaces").then((r) => r.items);
+}
+
+export function deleteKnowledgeSpace(knowledgeSpaceId: number) {
+  return wiki<{ success: boolean }>(`/api/v1/knowledge-spaces/${knowledgeSpaceId}`, {
+    method: "DELETE",
+  });
 }
 
 // ─── Documents ──────────────────────────────────────────────────────────────
@@ -148,6 +155,20 @@ export function useCreateKnowledgeSpace() {
   });
 }
 
+export function useDeleteKnowledgeSpace() {
+  const queryClient = useQueryClient();
+  const { activeSpaceId, setActiveSpaceId } = useActiveSpace();
+  return useMutation({
+    mutationFn: deleteKnowledgeSpace,
+    onSuccess: (_, deletedSpaceId) => {
+      if (deletedSpaceId === activeSpaceId) {
+        setActiveSpaceId(null);
+      }
+      queryClient.invalidateQueries({ queryKey: ["knowledge-spaces"] });
+    },
+  });
+}
+
 export function useDocuments(knowledgeSpaceId: number | null) {
   return useQuery({
     queryKey: ["documents", knowledgeSpaceId],
@@ -173,6 +194,9 @@ export function useAnalyzeDocument(knowledgeSpaceId: number | null) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents", knowledgeSpaceId] });
       queryClient.invalidateQueries({ queryKey: ["wikis", knowledgeSpaceId] });
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["documents", knowledgeSpaceId] });
     },
   });
 }

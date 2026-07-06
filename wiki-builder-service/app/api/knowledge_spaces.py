@@ -39,3 +39,16 @@ def list_knowledge_spaces(db: Session = Depends(get_db)):
             for ks in items
         ],
     )
+
+@router.delete("/{knowledge_space_id}", response_model=KnowledgeSpaceResponse)
+def delete_knowledge_space(
+    knowledge_space_id: int,
+    db: Session = Depends(get_db),
+):
+    ks = knowledge_space_service.delete_space(db, knowledge_space_id)
+    return KnowledgeSpaceResponse(
+        success=True,
+        knowledge_space_id=ks.id,
+        name=ks.name,
+        status=ks.status.value,
+    )

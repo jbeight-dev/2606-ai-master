@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { Upload, FileText, Sparkles } from "lucide-react";
+import { Upload, FileText, RotateCcw, Sparkles } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DocumentStatusBadge } from "@/components/common/StatusBadge";
@@ -27,7 +27,7 @@ function formatDate(iso?: string): string {
 
 interface DocumentListProps {
   documents: Document[];
-  onUpload: (file: File, documentType: DocumentType) => Promise<void>;
+  onUpload: (file: File) => Promise<void>;
   onAnalyze: (documentId: number) => void;
   analyzingDocumentId: number | null;
 }
@@ -40,7 +40,6 @@ export function DocumentList({
 }: DocumentListProps) {
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [documentType, setDocumentType] = useState<DocumentType>("USER_MANUAL");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback(
@@ -49,13 +48,13 @@ export function DocumentList({
       setUploading(true);
       try {
         for (const file of Array.from(files)) {
-          await onUpload(file, documentType);
+          await onUpload(file);
         }
       } finally {
         setUploading(false);
       }
     },
-    [onUpload, documentType]
+    [onUpload]
   );
 
   return (
@@ -95,17 +94,6 @@ export function DocumentList({
         <p className="text-xs text-muted-foreground mb-4">.txt 파일만 지원됩니다</p>
 
         <div className="flex items-center justify-center gap-2" onClick={(e) => e.stopPropagation()}>
-          <select
-            value={documentType}
-            onChange={(e) => setDocumentType(e.target.value as DocumentType)}
-            className="h-8 rounded-lg border border-input bg-background px-2.5 text-sm text-foreground"
-          >
-            {DOCUMENT_TYPE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
           <Button
             variant="outline"
             size="sm"
@@ -138,12 +126,16 @@ export function DocumentList({
                     · {formatDate(doc.created_at)}
                   </p>
 
-                  {doc.status === "UPLOADED" && (
+                  {(doc.status === "UPLOADED" || doc.status === "FAILED") && (
                     <div className="mt-2.5">
                       {analyzingDocumentId === doc.document_id ? (
                         <p className="text-xs text-primary flex items-center gap-1.5">
                           <Sparkles className="h-3.5 w-3.5 animate-pulse" /> AI 분석 중...
                         </p>
+                      ) : doc.status === "FAILED" ? (
+                        <Button size="sm" variant="outline" onClick={() => onAnalyze(doc.document_id)}>
+                          <RotateCcw className="h-3.5 w-3.5 mr-1" /> 다시 시도
+                        </Button>
                       ) : (
                         <Button size="sm" variant="outline" onClick={() => onAnalyze(doc.document_id)}>
                           <Sparkles className="h-3.5 w-3.5 mr-1" /> 분석 시작

@@ -4,7 +4,7 @@ from langgraph.graph import StateGraph, START, END
 
 from app.core.config import settings
 from app.core.logger import logger
-from app.core.exception import RateLimitException
+from app.core.exception import RateLimitException, APIUnavailableException
 from app.prompts.builder_prompt import (
     WIKI_BUILDER_SYSTEM_PROMPT,
     CLASSIFY_DOCUMENT_PROMPT,
@@ -16,6 +16,7 @@ from app.prompts.builder_prompt import (
 class WikiBuilderState(TypedDict, total=False):
     knowledge_space_id: int
     document_id: int
+    document_name: str
     document_text: str
     document_type: Optional[str]
 
@@ -52,6 +53,8 @@ def call_gemini(system_prompt: str, user_prompt: str, *, temperature: float = 0.
         logger.error(f"Gemini API error: {e}")
         if e.code == 429:
             raise RateLimitException()
+        elif e.code == 503:
+            raise APIUnavailableException()
         return None
     except Exception as e:
         logger.error(f"Gemini API error: {e}")
@@ -79,7 +82,11 @@ def classify_document(state: WikiBuilderState) -> WikiBuilderState:
 
     logger.info(f"[classify_document] Classifying document_id={state.get('document_id')}")
 
-    user_prompt = CLASSIFY_DOCUMENT_PROMPT.format(document_text=state["document_text"][:3000])
+    document_name = state.get("document_name") or "알 수 없음"
+    user_prompt = CLASSIFY_DOCUMENT_PROMPT.format(
+        document_name=document_name,
+        document_text=state["document_text"][:3000],
+    )
     result_text = call_gemini(WIKI_BUILDER_SYSTEM_PROMPT, user_prompt)
 
     if result_text is None:
@@ -193,10 +200,12 @@ class WikiBuilderGraph:
         document_id: int,
         document_text: str,
         document_type: Optional[str] = None,
+        document_name: Optional[str] = None,
     ) -> dict:
         state = {
             "knowledge_space_id": knowledge_space_id,
             "document_id": document_id,
+            "document_name": document_name,
             "document_text": document_text,
             "document_type": document_type,
         }

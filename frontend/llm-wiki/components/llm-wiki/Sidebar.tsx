@@ -14,12 +14,15 @@ import {
   Plus,
   Check,
   Boxes,
+  MoreVertical,
+  Trash2,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useKnowledgeSpaces, useWikis } from "@/lib/api";
 import { useActiveSpace } from "@/lib/active-space";
 import { CreateSpaceModal } from "@/components/llm-wiki/CreateSpaceModal";
+import { DeleteSpaceConfirmModal } from "@/components/llm-wiki/DeleteSpaceConfirmModal";
 
 const NAV_ITEMS = [
   { href: "/register", icon: FileText, label: "문서 등록", sub: "Documents" },
@@ -33,12 +36,15 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [spaceMenuOpen, setSpaceMenuOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteSpaceOpen, setDeleteSpaceOpen] = useState(false);
+  const [spaceToDelete, setSpaceToDelete] = useState<number | null>(null);
 
   const { data: spaces = [] } = useKnowledgeSpaces();
   const { activeSpaceId, activeSpace, setActiveSpaceId } = useActiveSpace();
   const { data: wikis = [] } = useWikis(activeSpaceId);
 
   const pendingCount = wikis.filter((w) => w.status === "DRAFT").length;
+  const spaceToDeleteInfo = spaces.find((s) => s.knowledge_space_id === spaceToDelete) || null;
 
   return (
     <aside
@@ -89,26 +95,40 @@ export function Sidebar() {
             Knowledge Spaces
           </p>
           {spaces.map((space) => (
-            <button
-              key={space.knowledge_space_id}
-              onClick={() => {
-                setActiveSpaceId(space.knowledge_space_id);
-                setSpaceMenuOpen(false);
-              }}
-              className={`w-full flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                space.knowledge_space_id === activeSpaceId ? "bg-accent" : "hover:bg-accent/50"
-              }`}
-            >
-              <div className="w-7 h-7 rounded-md bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold shrink-0">
-                {space.name.trim().charAt(0)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate text-foreground">{space.name}</p>
-              </div>
-              {space.knowledge_space_id === activeSpaceId && (
-                <Check className="h-3.5 w-3.5 text-primary shrink-0" />
-              )}
-            </button>
+            <div key={space.knowledge_space_id} className="relative group">
+              <button
+                onClick={() => {
+                  setActiveSpaceId(space.knowledge_space_id);
+                  setSpaceMenuOpen(false);
+                }}
+                className={`w-full flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                  space.knowledge_space_id === activeSpaceId ? "bg-accent" : "hover:bg-accent/50"
+                }`}
+              >
+                <div className="w-7 h-7 rounded-md bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold shrink-0">
+                  {space.name.trim().charAt(0)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate text-foreground">{space.name}</p>
+                </div>
+                {space.knowledge_space_id === activeSpaceId && (
+                  <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                )}
+              </button>
+              {/* Three-dot menu */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteSpaceOpen(true);
+                  setSpaceToDelete(space.knowledge_space_id);
+                  setSpaceMenuOpen(false);
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground"
+                title="스페이스 삭제"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
           ))}
           <button
             onClick={() => {
@@ -190,6 +210,11 @@ export function Sidebar() {
       </div>
 
       <CreateSpaceModal open={createOpen} onOpenChange={setCreateOpen} />
+      <DeleteSpaceConfirmModal
+        open={deleteSpaceOpen}
+        onOpenChange={setDeleteSpaceOpen}
+        space={spaceToDeleteInfo}
+      />
     </aside>
   );
 }

@@ -7,7 +7,7 @@ import { DocumentList } from "@/components/llm-wiki/DocumentList";
 import { AnalysisProgress } from "@/components/llm-wiki/AnalysisProgress";
 import { useDocuments, useUploadDocument, useAnalyzeDocument, ApiRequestError } from "@/lib/api";
 import { useActiveSpace } from "@/lib/active-space";
-import type { DocumentType, SimulatedAnalysisStep } from "@/types/llm-wiki";
+import type { SimulatedAnalysisStep } from "@/types/llm-wiki";
 
 const STEP_LABELS = [
   "문서 파싱",
@@ -104,9 +104,7 @@ export default function RegisterPage() {
           ) : (
             <DocumentList
               documents={documents}
-              onUpload={(file, documentType: DocumentType) =>
-                uploadMutation.mutateAsync({ file, documentType }).then(() => {})
-              }
+              onUpload={(file) => uploadMutation.mutateAsync({ file }).then(() => {})}
               onAnalyze={handleAnalyze}
               analyzingDocumentId={analysis?.status === "running" ? analysis.documentId : null}
             />

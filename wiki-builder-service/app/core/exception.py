@@ -26,6 +26,11 @@ class RateLimitException(WikiBuilderException):
         super().__init__(message, status_code=429)
 
 
+class APIUnavailableException(WikiBuilderException):
+    def __init__(self, message: str = "[errcode:503] AI API가 현재 응답할 수 없는 상황입니다. 잠시 후 재시도해주세요."):
+        super().__init__(message, status_code=503)
+
+
 async def wiki_builder_exception_handler(request: Request, exc: WikiBuilderException) -> JSONResponse:
     logger.error(f"WikiBuilderException: {exc.message}")
     return JSONResponse(

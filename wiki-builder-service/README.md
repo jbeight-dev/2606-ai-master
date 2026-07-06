@@ -4,7 +4,7 @@ FastAPI 기반 AI Wiki 자동 생성 서비스입니다.
 
 ## 프로젝트 개요
 
-문서를 업로드하면 LangGraph 워크플로우가 Azure OpenAI를 활용해 Wiki 초안을 자동 생성합니다.  
+문서를 업로드하면 LangGraph 워크플로우가 LLM를 활용해 Wiki 초안을 자동 생성합니다.  
 생성된 Wiki는 검수 후 승인/반려할 수 있으며, 승인된 Wiki는 Qdrant에 벡터로 저장되어 AI Assistant의 Knowledge Base로 활용됩니다.
 
 ## 프로젝트 구조
@@ -49,23 +49,6 @@ wiki-builder-service/
 
 프로젝트 루트에 `.env` 파일을 생성합니다.
 
-```env
-AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com
-AZURE_OPENAI_API_KEY=your-api-key
-AZURE_OPENAI_API_VERSION=2024-02-01
-AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o
-AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=text-embedding-3-small
-
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/wiki_builder
-
-QDRANT_URL=http://localhost:6333
-QDRANT_API_KEY=
-QDRANT_COLLECTION_NAME=wiki_embeddings
-
-STORAGE_PATH=app/storage/uploads
-PORT=8000
-LOG_LEVEL=INFO
-```
 
 ## 실행 방법
 

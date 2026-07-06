@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "LLM Wiki",
-  description: "AI 기반 사내 Wiki 시스템",
+  description: "AI 기반 Wiki 시스템",
 };
 
 export default function RootLayout({

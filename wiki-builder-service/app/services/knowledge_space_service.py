@@ -19,12 +19,21 @@ class KnowledgeSpaceService:
         return ks
 
     def get_all(self, db: Session) -> List[KnowledgeSpace]:
-        return db.query(KnowledgeSpace).order_by(KnowledgeSpace.created_at.desc()).all()
+        return db.query(KnowledgeSpace).filter(
+            KnowledgeSpace.status == KnowledgeSpaceStatus.ACTIVE
+        ).order_by(KnowledgeSpace.created_at.desc()).all()
 
     def get_by_id(self, db: Session, knowledge_space_id: int) -> KnowledgeSpace:
         ks = db.query(KnowledgeSpace).filter(KnowledgeSpace.id == knowledge_space_id).first()
         if not ks:
             raise NotFoundException(f"Knowledge Space를 찾을 수 없습니다. id={knowledge_space_id}")
+        return ks
+
+    def delete_space(self, db: Session, knowledge_space_id: int) -> KnowledgeSpace:
+        ks = self.get_by_id(db, knowledge_space_id)
+        ks.status = KnowledgeSpaceStatus.INACTIVE
+        db.commit()
+        db.refresh(ks)
         return ks
 
 

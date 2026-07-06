@@ -29,6 +29,10 @@ CLASSIFY_DOCUMENT_PROMPT = """아래 문서를 읽고 문서 유형을 분류하
 - GLOSSARY: 용어집, 용어 정의
 - UNKNOWN: 위 유형에 해당하지 않음
 
+UNKNOWN은 문서 내용이 전혀 부족하거나, 위 유형과 명확히 관련이 없을 때만 선택한다.
+
+파일명: {document_name}
+
 문서:
 {document_text}
 

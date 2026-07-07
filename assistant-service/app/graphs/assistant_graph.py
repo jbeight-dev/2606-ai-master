@@ -49,6 +49,7 @@ def call_gemini(prompt: str, *, temperature: float = 0.3) -> Optional[str]:
 class WikiAssistantState(TypedDict, total=False):
     question: str
     user_id: Optional[str]
+    knowledge_space_id: Optional[int]
 
     intent: Literal["wiki_question", "general_question"]
     rewritten_query: str
@@ -404,6 +405,15 @@ class AssistantGraph:
     def __init__(self):
         self.graph = build_graph()
 
-    def invoke(self, question: str, user_id: Optional[str] = None) -> Dict[str, Any]:
-        state: WikiAssistantState = {"question": question, "user_id": user_id}
+    def invoke(
+        self,
+        question: str,
+        user_id: Optional[str] = None,
+        knowledge_space_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        state: WikiAssistantState = {
+            "question": question,
+            "user_id": user_id,
+            "knowledge_space_id": knowledge_space_id,
+        }
         return self.graph.invoke(state)

@@ -1,9 +1,12 @@
+from typing import Optional
+
 from pydantic import BaseModel, field_validator
 
 
 class ChatRequest(BaseModel):
     user_id: str
     question: str
+    knowledge_space_id: Optional[int] = None
 
     @field_validator("question")
     @classmethod

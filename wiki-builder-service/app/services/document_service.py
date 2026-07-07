@@ -95,5 +95,14 @@ class DocumentService:
         db.refresh(document)
         return document
 
+    def update_document_type(self, db: Session, document: Document, classified_type: str) -> Document:
+        try:
+            document.document_type = DocumentType(classified_type)
+        except ValueError:
+            document.document_type = DocumentType.UNKNOWN
+        db.commit()
+        db.refresh(document)
+        return document
+
 
 document_service = DocumentService()

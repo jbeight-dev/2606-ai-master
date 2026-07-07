@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatMessage } from "@/components/llm-wiki/ChatMessage";
 import { useSendChatMessage } from "@/lib/api";
 import { getOrCreateUserId } from "@/lib/user-id";
+import { useActiveSpace } from "@/lib/active-space";
 import type { ChatMessage as ChatMessageType } from "@/types/llm-wiki";
 
 const SUGGESTIONS = [
@@ -21,6 +22,7 @@ export function ChatInterface() {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const sendMutation = useSendChatMessage();
+  const { activeSpaceId } = useActiveSpace();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -40,7 +42,7 @@ export function ChatInterface() {
     setInput("");
 
     sendMutation.mutate(
-      { user_id: getOrCreateUserId(), question },
+      { user_id: getOrCreateUserId(), question, knowledge_space_id: activeSpaceId },
       {
         onSuccess: (res) => {
           setMessages((prev) => [

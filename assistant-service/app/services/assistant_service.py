@@ -15,12 +15,17 @@ class AssistantService:
         start = time.monotonic()
 
         logger.info(
-            "CHAT_REQUEST user_id=%s question_len=%d",
+            "CHAT_REQUEST user_id=%s question_len=%d knowledge_space_id=%s",
             request.user_id,
             len(request.question),
+            request.knowledge_space_id,
         )
 
-        result = _graph.invoke(question=request.question, user_id=request.user_id)
+        result = _graph.invoke(
+            question=request.question,
+            user_id=request.user_id,
+            knowledge_space_id=request.knowledge_space_id,
+        )
 
         elapsed_ms = int((time.monotonic() - start) * 1000)
 

@@ -71,6 +71,7 @@ export interface UpdateWikiInput {
 export interface ChatRequest {
   user_id: string;
   question: string;
+  knowledge_space_id?: number | null;
 }
 
 export interface ChatResponse {

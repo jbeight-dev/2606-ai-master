@@ -35,6 +35,10 @@ class DocumentAnalysisService:
                 document_type=document.document_type.value,
             )
 
+            classified_type = result.get("classified_type")
+            if classified_type and classified_type != document.document_type.value:
+                document = document_service.update_document_type(db, document, classified_type)
+
             wiki_data_list = result.get("wikis", [])
             if not wiki_data_list:
                 raise DocumentAnalysisException("Wiki 초안이 생성되지 않았습니다.")

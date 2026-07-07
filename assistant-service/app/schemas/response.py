@@ -1,5 +1,11 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
+
+
+class WikiSource(BaseModel):
+    wiki_id: int
+    title: str
+    similarity_score: float
 
 
 class ChatResponse(BaseModel):
@@ -7,6 +13,7 @@ class ChatResponse(BaseModel):
     intent: Optional[str] = None
     rewritten_query: Optional[str] = None
     answer: Optional[str] = None
+    sources: List[WikiSource] = []
     elapsed_ms: Optional[int] = None
 
 

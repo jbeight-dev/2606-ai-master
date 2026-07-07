@@ -64,9 +64,14 @@ def call_gemini(system_prompt: str, user_prompt: str, *, temperature: float = 0.
 def _parse_json_response(content: str) -> Dict[str, Any]:
     content = content.strip()
     if content.startswith("```"):
-        lines = content.split("\n")
-        content = "\n".join(lines[1:-1]) if lines[-1] == "```" else "\n".join(lines[1:])
-    return json.loads(content)
+        content = content.split("\n", 1)[1] if "\n" in content else ""
+        content = content.strip()
+        if content.endswith("```"):
+            content = content[:-3].strip()
+
+    decoder = json.JSONDecoder()
+    obj, _ = decoder.raw_decode(content)
+    return obj
 
 
 def load_document(state: WikiBuilderState) -> WikiBuilderState:

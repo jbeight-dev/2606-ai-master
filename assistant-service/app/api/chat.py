@@ -21,6 +21,7 @@ async def chat(request: ChatRequest):
 
     - **user_id**: 사용자 식별자
     - **question**: 질문 내용 (비어 있으면 400 반환)
+    - **knowledge_space_id**: 답변 기준이 되는 Knowledge Space ID (선택, 생략 시 전체 범위)
     """
     try:
         response = await asyncio.to_thread(_service.chat, request)

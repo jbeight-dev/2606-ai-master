@@ -10,11 +10,10 @@ import { useActiveSpace } from "@/lib/active-space";
 import type { SimulatedAnalysisStep } from "@/types/llm-wiki";
 
 const STEP_LABELS = [
-  "문서 파싱",
+  "문서 분류",
   "구조 분석",
-  "엔티티 추출",
-  "Wiki 노드 생성",
-  "관계 매핑",
+  "Wiki 초안 생성",
+  "임베딩 및 Vector 저장",
   "검수 대기",
 ];
 

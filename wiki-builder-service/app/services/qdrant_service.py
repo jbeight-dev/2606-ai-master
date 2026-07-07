@@ -39,6 +39,20 @@ class QdrantService:
             )
             logger.info(f"[qdrant_service] Created collection: {settings.QDRANT_COLLECTION_NAME}")
 
+        for field_name, field_schema in (
+            ("status", PayloadSchemaType.KEYWORD),
+            ("knowledge_space_id", PayloadSchemaType.INTEGER),
+            ("wiki_id", PayloadSchemaType.INTEGER),
+        ):
+            try:
+                client.create_payload_index(
+                    collection_name=settings.QDRANT_COLLECTION_NAME,
+                    field_name=field_name,
+                    field_schema=field_schema,
+                )
+            except Exception as e:
+                logger.debug(f"[qdrant_service] payload index for '{field_name}' skipped: {e}")
+
     def upsert_wikis(
         self,
         wiki_ids: List[int],

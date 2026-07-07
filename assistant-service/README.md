@@ -66,15 +66,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
-### Docker 실행
 
-```bash
-# 이미지 빌드
-docker build -t ai-wiki-assistant .
-
-# 컨테이너 실행
-docker run -p 8000:8000 --env-file .env ai-wiki-assistant
-```
 
 ---
 
@@ -102,9 +94,12 @@ Request:
 ```json
 {
   "user_id": "user001",
-  "question": "GOOD과 DEFECT의 차이는?"
+  "question": "GOOD과 DEFECT의 차이는?",
+  "knowledge_space_id": 1
 }
 ```
+
+- **knowledge_space_id** (선택): 어느 Knowledge Space를 기준으로 답변할지 지정하는 정수 ID. 생략하면(`null`) 특정 스페이스에 국한되지 않고 답변합니다.
 
 Response:
 ```json
@@ -134,7 +129,7 @@ curl http://localhost:8000/health
 # 채팅
 curl -X POST http://localhost:8000/api/v1/chat \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"user001","question":"GOOD과 DEFECT의 차이는?"}'
+  -d '{"user_id":"user001","question":"GOOD과 DEFECT의 차이는?","knowledge_space_id":1}'
 ```
 
 ---

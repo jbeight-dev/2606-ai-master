@@ -5,7 +5,7 @@ FastAPI 기반 AI Wiki 자동 생성 서비스입니다.
 ## 프로젝트 개요
 
 문서를 업로드하면 LangGraph 워크플로우가 LLM를 활용해 Wiki 초안을 자동 생성합니다.  
-생성된 Wiki는 검수 후 승인/반려할 수 있으며, 승인된 Wiki는 Qdrant에 벡터로 저장되어 AI Assistant의 Knowledge Base로 활용됩니다.
+생성된 Wiki는 검수 후 승인/반려할 수 있으며, 승인된 Wiki는 Qdrant에 벡터(wiki_embeddings)로 저장되어 AI Assistant의 Knowledge Base로 활용됩니다.
 
 ## 프로젝트 구조
 

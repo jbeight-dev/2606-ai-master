@@ -2,15 +2,14 @@
 AI Wiki Assistant - LangGraph Workflow
 """
 
-import re
-from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
 from app.core import config
 from app.core.logger import get_logger
+from app.services import wiki_client
+from app.services.qdrant_service import qdrant_service
 
 logger = get_logger(__name__)
 
@@ -38,6 +37,21 @@ def call_gemini(prompt: str, *, temperature: float = 0.3) -> Optional[str]:
         return response.text
     except Exception as e:
         logger.error("Gemini API error: %s", e)
+        return None
+
+
+def _embed_query(text: str) -> Optional[List[float]]:
+    client = _get_gemini_client()
+    if client is None:
+        return None
+    try:
+        response = client.models.embed_content(
+            model=config.EMBEDDING_MODEL,
+            contents=text,
+        )
+        return response.embeddings[0].values
+    except Exception as e:
+        logger.error("Gemini embedding error: %s", e)
         return None
 
 
@@ -148,63 +162,38 @@ def query_rewrite(state: WikiAssistantState) -> WikiAssistantState:
     return {**state, "rewritten_query": rewritten_query}
 
 
-def _get_wiki_dir() -> Path:
-    if config.WIKI_DIR:
-        return Path(config.WIKI_DIR)
-    # 기본값: assistant-service/wiki/
-    return Path(__file__).parent.parent.parent / "wiki"
-
-
-def _load_wiki_sections(wiki_dir: Path) -> List[Dict[str, Any]]:
-    docs: List[Dict[str, Any]] = []
-    for md_file in sorted(wiki_dir.glob("*.md")):
-        text = md_file.read_text(encoding="utf-8")
-        updated_at = datetime.fromtimestamp(md_file.stat().st_mtime).strftime("%Y-%m-%d")
-        sections = re.split(r"\n(?=#{1,3} )", text)
-
-        for i, section in enumerate(sections):
-            section = section.strip()
-            if not section:
-                continue
-            lines = section.split("\n")
-            title = lines[0].lstrip("#").strip() or md_file.stem
-            content = "\n".join(lines[1:]).strip()
-            docs.append(
-                {
-                    "doc_id": f"{md_file.stem}_{i:03d}",
-                    "title": title,
-                    "content": content or section,
-                    "updated_at": updated_at,
-                    "source": md_file.name,
-                    "_search_text": section.lower(),
-                }
-            )
-    return docs
-
-
-def _keyword_score(query: str, search_text: str) -> float:
-    tokens = set(re.findall(r"\w+", query.lower()))
-    if not tokens:
-        return 0.0
-    hits = sum(1 for t in tokens if t in search_text)
-    return round(hits / len(tokens), 2)
-
-
 def markdown_retriever(state: WikiAssistantState) -> WikiAssistantState:
     query = state["rewritten_query"]
-    wiki_dir = _get_wiki_dir()
-    all_sections = _load_wiki_sections(wiki_dir)
+    knowledge_space_id = state.get("knowledge_space_id")
 
-    scored: List[Dict[str, Any]] = []
-    for doc in all_sections:
-        score = _keyword_score(query, doc["_search_text"])
-        if score > 0:
-            entry = {k: v for k, v in doc.items() if k != "_search_text"}
-            entry["similarity_score"] = score
-            scored.append(entry)
+    vector = _embed_query(query)
+    if vector is None:
+        return {**state, "retrieved_docs": []}
 
-    scored.sort(key=lambda d: d["similarity_score"], reverse=True)
-    return {**state, "retrieved_docs": scored[:5]}
+    hits = qdrant_service.search(vector, knowledge_space_id=knowledge_space_id, limit=5)
+
+    docs: List[Dict[str, Any]] = []
+    for hit in hits:
+        wiki_id = hit.get("wiki_id")
+        wiki = wiki_client.get_wiki(wiki_id)
+        if wiki is None or wiki.get("status") != "APPROVED":
+            continue
+        if knowledge_space_id is not None and wiki.get("knowledge_space_id") != knowledge_space_id:
+            continue
+
+        docs.append(
+            {
+                "doc_id": f"wiki_{wiki_id}",
+                "wiki_id": wiki_id,
+                "title": wiki.get("title", ""),
+                "content": wiki.get("markdown", ""),
+                "updated_at": (wiki.get("updated_at") or "")[:10],
+                "source": f"wiki:{wiki_id}",
+                "similarity_score": hit["similarity_score"],
+            }
+        )
+
+    return {**state, "retrieved_docs": docs}
 
 
 def document_reranker(state: WikiAssistantState) -> WikiAssistantState:
@@ -311,10 +300,6 @@ def confidence_checker(state: WikiAssistantState) -> WikiAssistantState:
 
     score = round(min(score, 1.0), 2)
 
-    sources_text = "\n".join(
-        f"- {d.get('source')} ({d.get('title')})" for d in docs
-    )
-
     if score >= 0.5:
         result = "PASS"
         reason = "관련 문서를 기반으로 충분한 근거의 답변이 생성되었습니다."
@@ -322,8 +307,7 @@ def confidence_checker(state: WikiAssistantState) -> WikiAssistantState:
             f"{answer}\n\n"
             f"---\n\n"
             f"신뢰도: {int(score * 100)}%\n"
-            f"검증 결과: {result}\n"
-            f"근거 문서:\n{sources_text}"
+            f"검증 결과: {result}"
         ).strip()
     else:
         result = "FAIL"

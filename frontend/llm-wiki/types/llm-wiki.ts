@@ -74,11 +74,18 @@ export interface ChatRequest {
   knowledge_space_id?: number | null;
 }
 
+export interface WikiSource {
+  wiki_id: number;
+  title: string;
+  similarity_score: number;
+}
+
 export interface ChatResponse {
   success: boolean;
   intent?: string | null;
   rewritten_query?: string | null;
   answer?: string | null;
+  sources?: WikiSource[];
   elapsed_ms?: number | null;
 }
 

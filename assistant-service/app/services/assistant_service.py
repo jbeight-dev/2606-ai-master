@@ -32,6 +32,14 @@ class AssistantService:
         intent = result.get("intent")
         rewritten_query = result.get("rewritten_query")
         answer = result.get("final_answer")
+        sources = [
+            {
+                "wiki_id": doc["wiki_id"],
+                "title": doc.get("title", ""),
+                "similarity_score": doc.get("similarity_score", 0.0),
+            }
+            for doc in result.get("reranked_docs", [])
+        ]
 
         logger.info(
             "CHAT_RESPONSE user_id=%s intent=%s elapsed_ms=%d",
@@ -45,5 +53,6 @@ class AssistantService:
             intent=intent,
             rewritten_query=rewritten_query,
             answer=answer,
+            sources=sources,
             elapsed_ms=elapsed_ms,
         )

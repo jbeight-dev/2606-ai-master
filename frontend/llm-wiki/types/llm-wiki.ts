@@ -115,6 +115,8 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   error?: boolean;
+  sources?: WikiSource[];
+  retryQuestion?: string;
 }
 
 // Errors

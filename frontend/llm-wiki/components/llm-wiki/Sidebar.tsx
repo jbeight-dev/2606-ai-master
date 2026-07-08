@@ -85,13 +85,13 @@ export function Sidebar() {
             return (
               <Link key={href} href={href}>
                 <div
-                  className={`relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  className={`relative flex items-start gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                     active
                       ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                   } ${collapsed ? "justify-center px-2" : ""}`}
                 >
-                  <Icon className="h-4 w-4 shrink-0" />
+                  <Icon className="h-4 w-4 shrink-0 mt-0.5" />
                   {!collapsed && (
                     <div className="flex-1 min-w-0">
                       <div>{label}</div>
@@ -123,8 +123,8 @@ export function Sidebar() {
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">설비 운영자</p>
-            <p className="text-xs text-muted-foreground">admin@mes-ai</p>
+            <p className="text-sm font-medium text-foreground">홍길동</p>
+            <p className="text-xs text-muted-foreground">hong@email.com</p>
           </div>
         )}
       </div>

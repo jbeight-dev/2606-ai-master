@@ -3,11 +3,32 @@ import time
 from app.graphs.assistant_graph import AssistantGraph
 from app.schemas.request import ChatRequest
 from app.schemas.response import ChatResponse
+from app.core.database import SessionLocal
 from app.core.logger import get_logger
+from app.models.chat_query import ChatQuery
 
 logger = get_logger(__name__)
 
 _graph = AssistantGraph()
+
+
+def _save_chat_query(request: ChatRequest, intent: str | None) -> None:
+    db = SessionLocal()
+    try:
+        db.add(
+            ChatQuery(
+                knowledge_space_id=request.knowledge_space_id,
+                user_id=request.user_id,
+                question=request.question,
+                intent=intent,
+            )
+        )
+        db.commit()
+    except Exception as e:
+        logger.error("CHAT_QUERY_SAVE_FAILED error=%s", e)
+        db.rollback()
+    finally:
+        db.close()
 
 
 class AssistantService:
@@ -30,6 +51,8 @@ class AssistantService:
         elapsed_ms = int((time.monotonic() - start) * 1000)
 
         intent = result.get("intent")
+
+        _save_chat_query(request, intent)
         rewritten_query = result.get("rewritten_query")
         answer = result.get("final_answer")
         sources = [

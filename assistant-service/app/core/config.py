@@ -18,3 +18,5 @@ QDRANT_API_KEY: str = os.getenv("QDRANT_API_KEY", "")
 QDRANT_COLLECTION_NAME: str = os.getenv("QDRANT_COLLECTION_NAME", "wiki_embeddings")
 
 WIKI_BUILDER_SERVICE_URL: str = os.getenv("WIKI_BUILDER_SERVICE_URL", "http://localhost:8000")
+
+DATABASE_URL: str = os.getenv("DATABASE_URL", "")

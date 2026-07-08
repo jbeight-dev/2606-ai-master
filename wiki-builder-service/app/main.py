@@ -9,7 +9,7 @@ from app.core.exception import (
     validation_exception_handler,
     generic_exception_handler,
 )
-from app.api import knowledge_spaces, documents, wikis
+from app.api import knowledge_spaces, documents, wikis, qa
 
 app = FastAPI(
     title="AI Wiki Builder",
@@ -32,6 +32,7 @@ app.add_exception_handler(Exception, generic_exception_handler)
 app.include_router(knowledge_spaces.router)
 app.include_router(documents.router)
 app.include_router(wikis.router)
+app.include_router(qa.router)
 
 
 @app.on_event("startup")

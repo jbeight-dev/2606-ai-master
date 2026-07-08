@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Check } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentList } from "@/components/llm-wiki/DocumentList";
 import { AnalysisProgress } from "@/components/llm-wiki/AnalysisProgress";
@@ -15,6 +15,12 @@ const STEP_LABELS = [
   "Wiki 초안 생성",
   "임베딩 및 Vector 저장",
   "검수 대기",
+];
+
+const UPLOAD_GUIDE_ITEMS = [
+  ".txt 형식만 지원됩니다",
+  "업로드 후 \"분석 시작\"을 눌러 AI가 Wiki를 생성합니다",
+  "분석 완료 후 검수 페이지에서 내용을 확인하고 승인할 수 있습니다",
 ];
 
 interface AnalysisState {
@@ -134,16 +140,17 @@ export default function RegisterPage() {
             </Card>
           )}
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold">업로드 가이드</CardTitle>
-            </CardHeader>
-            <CardContent className="text-xs text-muted-foreground space-y-2">
-              <p>• .txt 형식만 지원됩니다</p>
-              <p>• 업로드 후 &quot;분석 시작&quot;을 눌러 AI가 Wiki를 생성합니다</p>
-              <p>• 분석 완료 후 검수 페이지에서 내용을 확인하고 승인할 수 있습니다</p>
-            </CardContent>
-          </Card>
+          <div className="rounded-xl bg-muted px-4 py-3.5">
+            <p className="text-sm font-semibold text-foreground mb-2.5">업로드 가이드</p>
+            <ul className="space-y-2">
+              {UPLOAD_GUIDE_ITEMS.map((item) => (
+                <li key={item} className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <Check className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground/80" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </div>
     </div>

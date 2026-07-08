@@ -120,6 +120,40 @@ class WikiRejectResponse(BaseModel):
     status: str
 
 
+class QAListItem(BaseModel):
+    qa_id: int
+    question: str
+    answer: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class QAListResponse(BaseModel):
+    success: bool = True
+    items: List[QAListItem]
+
+
+class QADetailResponse(BaseModel):
+    success: bool = True
+    qa_id: int
+    knowledge_space_id: int
+    question: str
+    answer: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class QADeleteResponse(BaseModel):
+    success: bool = True
+    qa_id: int
+
+
 class ErrorResponse(BaseModel):
     success: bool = False
     message: str

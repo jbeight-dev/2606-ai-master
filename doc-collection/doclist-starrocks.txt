@@ -1,6 +1,16 @@
+https://docs.starrocks.io/docs/3.5/best_practices/overview/
+https://docs.starrocks.io/docs/3.5/best_practices/partitioning/
+https://docs.starrocks.io/docs/3.5/best_practices/table_clustering/
+https://docs.starrocks.io/docs/3.5/best_practices/bucketing/
+https://docs.starrocks.io/docs/3.5/best_practices/primarykey_table/
+https://docs.starrocks.io/docs/3.5/best_practices/query_tuning/query_planning/
 https://docs.starrocks.io/docs/3.5/best_practices/query_tuning/query_profile_overview/
 https://docs.starrocks.io/docs/3.5/best_practices/query_tuning/query_profile_tuning_recipes/
 https://docs.starrocks.io/docs/3.5/best_practices/query_tuning/schema_tuning/
 https://docs.starrocks.io/docs/3.5/best_practices/query_tuning/query_profile_text_based_analysis/
 https://docs.starrocks.io/docs/3.5/best_practices/query_tuning/query_hint/
 https://docs.starrocks.io/docs/3.5/best_practices/query_tuning/query_profile_operator_metrics/
+https://docs.starrocks.io/docs/3.5/using_starrocks/Colocate_join/
+https://docs.starrocks.io/docs/3.5/using_starrocks/query_feedback/
+https://docs.starrocks.io/docs/3.5/using_starrocks/caching/query_cache/
+https://docs.starrocks.io/docs/3.5/using_starrocks/caching/block_cache/

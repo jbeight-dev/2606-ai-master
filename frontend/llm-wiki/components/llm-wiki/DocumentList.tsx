@@ -2,7 +2,6 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Upload, FileText, RotateCcw, Sparkles } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DocumentStatusBadge } from "@/components/common/StatusBadge";
 import type { Document, DocumentType } from "@/types/llm-wiki";
@@ -61,10 +60,10 @@ export function DocumentList({
     <div className="space-y-4">
       {/* Drop zone */}
       <div
-        className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+        className={`border-2 border-dashed rounded-xl py-8 px-6 text-center transition-colors ${
           dragging
             ? "border-primary bg-primary/5"
-            : "border-border hover:border-primary/50 hover:bg-accent/30"
+            : "border-border bg-muted/30 hover:border-primary/50 hover:bg-accent/30"
         }`}
         onDragOver={(e) => {
           e.preventDefault();
@@ -87,11 +86,11 @@ export function DocumentList({
           onChange={(e) => handleFiles(e.target.files)}
         />
 
-        <Upload className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
-        <p className="text-sm font-medium text-foreground mb-1">
+        <Upload className="mx-auto h-10 w-10 text-muted-foreground mb-2.5" />
+        <p className="text-sm font-medium text-foreground mb-2">
           파일을 드래그하거나 클릭하여 업로드
         </p>
-        <p className="text-xs text-muted-foreground mb-4">.txt 파일만 지원됩니다</p>
+        <p className="text-xs text-muted-foreground mb-3">.txt 파일만 지원됩니다</p>
 
         <div className="flex items-center justify-center gap-2" onClick={(e) => e.stopPropagation()}>
           <Button
@@ -107,54 +106,51 @@ export function DocumentList({
       </div>
 
       {/* Document list */}
-      <div className="space-y-2">
-        {documents.map((doc) => (
-          <Card key={doc.document_id} className="group hover:shadow-md transition-shadow">
-            <CardContent className="p-4">
-              <div className="flex items-start gap-3">
-                <span className="text-muted-foreground shrink-0 mt-0.5">
-                  <FileText className="h-5 w-5" />
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-medium truncate text-foreground">{doc.file_name}</p>
-                    <DocumentStatusBadge status={doc.status} />
+      {documents.length > 0 ? (
+        <div>
+          <p className="text-sm font-semibold text-foreground mb-2">등록된 문서</p>
+          <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
+            {documents.map((doc) => (
+              <div key={doc.document_id} className="px-4 py-3 hover:bg-accent/30 transition-colors">
+                <div className="flex items-center gap-3">
+                  <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0 flex items-center gap-2">
+                    <span className="text-sm font-medium truncate text-foreground">{doc.file_name}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {DOCUMENT_TYPE_OPTIONS.find((o) => o.value === doc.document_type)?.label ??
+                        doc.document_type}{" "}
+                      · {formatDate(doc.created_at)}
+                    </span>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {DOCUMENT_TYPE_OPTIONS.find((o) => o.value === doc.document_type)?.label ??
-                      doc.document_type}{" "}
-                    · {formatDate(doc.created_at)}
-                  </p>
-
-                  {(doc.status === "UPLOADED" || doc.status === "FAILED") && (
-                    <div className="mt-2.5">
-                      {analyzingDocumentId === doc.document_id ? (
-                        <p className="text-xs text-primary flex items-center gap-1.5">
-                          <Sparkles className="h-3.5 w-3.5 animate-pulse" /> AI 분석 중...
-                        </p>
-                      ) : doc.status === "FAILED" ? (
-                        <Button size="sm" variant="outline" onClick={() => onAnalyze(doc.document_id)}>
-                          <RotateCcw className="h-3.5 w-3.5 mr-1" /> 다시 시도
-                        </Button>
-                      ) : (
-                        <Button size="sm" variant="outline" onClick={() => onAnalyze(doc.document_id)}>
-                          <Sparkles className="h-3.5 w-3.5 mr-1" /> 분석 시작
-                        </Button>
-                      )}
-                    </div>
-                  )}
+                  <DocumentStatusBadge status={doc.status} />
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
 
-        {documents.length === 0 && (
-          <p className="text-sm text-muted-foreground text-center py-6">
-            아직 등록된 문서가 없습니다. 위 영역에 문서를 올려 이 공간의 Wiki를 시작하세요.
-          </p>
-        )}
-      </div>
+                {(doc.status === "UPLOADED" || doc.status === "FAILED") && (
+                  <div className="mt-2 pl-8">
+                    {analyzingDocumentId === doc.document_id ? (
+                      <p className="text-xs text-primary flex items-center gap-1.5">
+                        <Sparkles className="h-3.5 w-3.5 animate-pulse" /> AI 분석 중...
+                      </p>
+                    ) : doc.status === "FAILED" ? (
+                      <Button size="sm" variant="outline" onClick={() => onAnalyze(doc.document_id)}>
+                        <RotateCcw className="h-3.5 w-3.5 mr-1" /> 다시 시도
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={() => onAnalyze(doc.document_id)}>
+                        <Sparkles className="h-3.5 w-3.5 mr-1" /> 분석 시작
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground text-center py-6">
+          아직 등록된 문서가 없습니다. 위 영역에 문서를 올려 이 공간의 Wiki를 시작하세요.
+        </p>
+      )}
     </div>
   );
 }

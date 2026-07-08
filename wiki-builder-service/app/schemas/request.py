@@ -33,3 +33,41 @@ class UpdateWikiRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError("Wiki 본문은 비어 있을 수 없습니다.")
         return v
+
+
+class CreateQARequest(BaseModel):
+    question: str
+    answer: str
+
+    @field_validator("question")
+    @classmethod
+    def question_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("질문은 비어 있을 수 없습니다.")
+        return v.strip()
+
+    @field_validator("answer")
+    @classmethod
+    def answer_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("답변은 비어 있을 수 없습니다.")
+        return v.strip()
+
+
+class UpdateQARequest(BaseModel):
+    question: str
+    answer: str
+
+    @field_validator("question")
+    @classmethod
+    def question_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("질문은 비어 있을 수 없습니다.")
+        return v.strip()
+
+    @field_validator("answer")
+    @classmethod
+    def answer_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("답변은 비어 있을 수 없습니다.")
+        return v.strip()

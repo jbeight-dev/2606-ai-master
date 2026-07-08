@@ -22,3 +22,4 @@ class KnowledgeSpace(Base):
 
     documents = relationship("Document", back_populates="knowledge_space")
     wikis = relationship("Wiki", back_populates="knowledge_space")
+    qas = relationship("QA", back_populates="knowledge_space")

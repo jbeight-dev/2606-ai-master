@@ -1,0 +1,251 @@
+Table clustering
+Best Practices
+Table clustering
+Version: Stable-3.5
+On this page
+Table clustering
+A thoughtful sortâkey is the highestâleverage physicalâdesign knob in StarRocks. This guide explains how the sort key works under the hood, the systemic benefits it unlocks, and a concrete playbook for picking an effective key for your own workload.
+Example
+â
+Suppose you run a telemetry system that receives billions of rows per day, each tagged with a
+device_id
+and
+ts
+(timestamp). Defining
+ORDER BY (device_id, ts)
+on your fact table ensures:
+Point queries on
+device_id
+return in milliseconds.
+Dashboards filter recent time windows for each device prune most data.
+Aggregations like
+GROUP BY device_id
+benefit from streaming aggregation.
+Compression improves due to runs of nearby timestamps per device.
+This simple two-column sort key
+ORDER BY (device_id, ts)
+delivers I/O reduction, CPU savings, and more stable query performance across billions of rows.
+CREATE
+TABLE
+telemetry
+(
+device_id
+VARCHAR
+,
+ts
+DATETIME
+,
+value
+DOUBLE
+)
+ENGINE
+=
+OLAP
+PRIMARY
+KEY
+(
+device_id
+,
+ts
+)
+PARTITION
+BY
+date_trunc
+(
+'day'
+,
+ts
+)
+DISTRIBUTED
+BY
+HASH
+(
+device_id
+)
+BUCKETS
+16
+ORDER
+BY
+(
+device_id
+,
+ts
+)
+;
+Benefits in Depth
+â
+Massive I/O EliminationâSegment & Page Pruning
+How it works:
+Each segment and 64â¯KB page stores min/max values for all columns. If a predicate falls outside that range, StarRocks skips the entire chunk and never touches the disk.
+Example:
+SELECT
+count
+(
+*
+)
+FROM
+events
+WHERE
+tenant_id
+=
+42
+AND
+ts
+BETWEEN
+'2025-05-01'
+AND
+'2025-05-07'
+;
+With
+ORDER BY (tenant_id, ts)
+only the segments whose first key equals 42 are considered, and within them only the pages whose ts window overlaps those seven days. A 100â¯Bârow table may scan less thanâ¯1â¯B rows, turning minutes into seconds.
+Millisecond Point â¯LookâUpsâSparse Prefix Index
+How it works:
+A sparse prefix index stores every ~1â¯Kth sortâkey value. A binary search lands on the right page, then a single disk read (often already cached) returns the row.
+Example:
+SELECT
+*
+FROM
+orders
+WHERE
+order_id
+=
+982347234
+;
+With
+ORDER BY (order_id)
+the probe needs ââ¯50 key comparisons across a 50â¯Bârow tableâsubâ10â¯ms latency even on cold data cache.
+Faster Sorted Aggregation
+How it works:
+When the sort key aligns with the GROUP BY clause, StarRocks performs streaming aggregation as it scansâno sorting or hash-table needed.
+This sorted-aggregation plan scans rows in sort-key order and emits groups on the fly, exploiting CPU cache locality and skipping intermediate materialisation.
+Example:
+SELECT
+device_id
+,
+COUNT
+(
+*
+)
+FROM
+telemetry
+WHERE
+ts
+BETWEEN
+'2025-01-01'
+AND
+'2025-01-31'
+GROUP
+BY
+device_id
+;
+If the table is
+ORDER BY (device_id, ts)
+, the engine groups rows as they stream inâwithout building a hash table or re-sorting. For high-cardinality keys like device_id, this can reduce both CPU and memory usage dramatically.
+Streaming aggregation with sorted input typically improves throughput by 2â3Ã over hash-aggregation for large group cardinalities.
+Higherâ¯ Compression & â¯Hotter â¯Caches
+How it works:
+Sorted data shows small deltas or long runs, accelerating dictionary, RLE, and frameâofâreference encodings. Compact pages stream sequentially through CPU caches.
+Example:
+A telemetry table sorted by (device_id, ts) achieved 1.8â¯Ã better compression (LZ4) and 25â¯% lower CPU/scan than the same data ingested unsorted.
+How the Sort Key Works
+â
+The impact of a sort key starts the moment a row is written and persists through every readâtime optimisation. This section walks through that lifecycleâwrite path â storage hierarchy â segment internals â read pathâto show how each layer compounds the value of ordering.
+Write Path
+Ingest:ârows land in a MemTable, are sorted by the declared sort key, and then flushed as a new Rowset containing one or more ordered Segments.
+Compaction:âBackground cumulative/base jobs merge many small Rowsets into larger ones, reclaiming deletes and lowering segment count without reâsorting, because every source Rowset already shares the same order.
+Replication:âEach Tablet (the shard that owns the Rowset) is synchronously replicated to peer BackâEnd nodes, guaranteeing that sorted order is consistent across replicas.
+Storage Hierarchy
+Object
+What it is
+Why is matters for the sort key
+Partition
+A coarseâgrained logical slice of a table (e.g., date or tenant_id).
+Enables plannerâtime partition pruning and isolates lifecycle ops (TTL, bulk load).
+Tablet
+A hash/random bucket within a partition, independently replicated across BackâEnd nodes.
+Unit whose rows are physically ordered by the sort key; all intraâpartition pruning starts here.
+MemTable
+Inâmemory write buffer (~96 MB) that sorts by the declared key before flushing to disk.
+Guarantees that every onâdisk Segment is already orderedâNo external sort needed later.
+Rowset
+Immutable bundle of one or more Segments produced by a flush, streaming load, or compaction cycle.
+Appendâonly design lets StarRocks ingest concurrently while readers stay lockâfree.
+Segment
+Selfâcontained columnar file (~512 MB) inside a Rowset carrying data pages plus pruning indexes.
+Segmentâlevel zoneâmaps and prefix indexes rely on the order established at the MemTable stage.
+Inside a Segment File
+Each Segment is selfâdescribing. From top to bottom youâll find:
+Column data pagesâ64â¯KB blocks encoded (Dictionary, RLE, Delta) and compressed (LZ4 default).
+Ordinal indexâMaps a row ordinal â page offset so the engine can jump directly to page n.
+Zoneâmap indexâmin, max, and has_null per page and for the whole Segmentâfirst line of defence for pruning.
+Shortâkey (prefix) indexâSparse binaryâsearch table of the first 36â¯bytes of the sort key every ~1â¯K rowsâenables millisecond point/range seeks.
+Footer & magic numberâOffsets to every index and a checksum for integrity; lets StarRocks memoryâmap just the tail to discover the rest.
+Because the pages are already sorted by the key, those indexes are tiny yet brutally effective.
+Read Path
+Partition pruning (plannerâtime)âIf the WHERE clause constrains the partition key (e.g.
+dt BETWEEN '2025â05â01' AND '2025â05â07'
+), the optimizer opens only matching partition directories.
+Tablet pruning(planner-time)âWhen the equality filter includes the hash distribution column, StarRocks computes the target tablet IDs and schedules just those Tablets.
+Prefixâindex seekâA sparse shortâkey index on the leading sort columns homes in on the exact segment or page.
+Zoneâmap pruningâmin/max metadata per Segment and 64â¯KB page discards blocks that miss the predicate window.
+Vectorized scan & late materializationâSurviving column pages stream sequentially through CPU caches; only referenced rows&columns are materialized, keeping memory tight.
+Because data is committed in key order on every flush, each readâtime pruning layer compounds on the one before it, delivering subâsecond scans on multiâbillionârow tables.
+How to Choose an Effective Sort Key
+â
+Start with Workload Intelligence
+Analyse the topâN query patterns first:
+Equality predicates (
+=
+/
+IN
+). Columns almost always filtered by equality make ideal leading candidates.
+Range predicates. Timestamps and numeric ranges typically follow equality columns in the sort key.
+Aggregation keys. If a range column also appears in
+GROUP BY
+clauses, placing it earlier in the key (after selective filters) can enable sorted aggregation.
+Join/group-by keys. Consider placing join or grouping keys early if they are common
+Measure column cardinality: highâcardinality columns (millions of distinct values) prune best.
+Heuristics & Rules of Thumb
+Order rule:  (highâselectivity equality columns) â (primary range column) â (cluster helpers).
+Cardinality Ordering: Placing low-cardinality columns before high-cardinality columns can enhance data compression.
+Width: Keep to 3â5 columns. Very wide keys slow ingest and overflow the 36âbyte prefixâindex limit.
+String columns: a long leading string column may occupy most or all of the 36-byte limit in the prefix index, preventing subsequent columns in the sort key from being indexed effectively.
+This reduces the pruning power of the prefix index and degrades point query performance.
+Coordinate with Other Design Knobs
+Partitioning: Choose a partition key that is coarser than the leading sort column (for example,
+PARTITION BY date
+,
+ORDER BY (tenant_id, ts)
+). That way partition pruning removes whole date ranges first, and sort pruning cleans up inside.
+Bucketing: Using the same columns for both bucketing and clustering serves different purposes. Bucketing ensures even data distribution across the cluster, while sorting enables efficient I/O elimination.
+Table type: Primary-Key tables default to using the primary key as the sort key, but they can also specify additional columns to refine physical order and enhance pruning. Aggregate and duplicate tables should follow the analytic predicate-driven sort key strategies discussed above.
+Reference Templates
+Scenario
+Partition
+Sort Key
+Rationale
+B2C Orders
+date_trunc('day', order_ts)
+(user_id, order_ts)
+Most queries filter by user first, then recent time ranges.
+IoT Telemetry
+date_trunc('day', ts)
+(device_id, ts)
+Deviceâscoped timeâseries reads dominate.
+SaaS MultiâTenant
+tenant_id
+(dt, event_id)
+Tenant isolation via partition; sort clusters by day for dashboards.
+Dimension Lookup
+none
+(dim_id)
+Small table, pure point lookâupsâsingleâcolumn suffices.
+Conclusion
+â
+A wellâdesigned sort key trades a small, predictable ingest overhead for dramatic improvements in scan latency, storage efficiency, and CPU utilisation. By grounding your choice in workload realities, respecting cardinality, and validating with
+EXPLAIN
+, you can keep StarRocks humming even as data and user counts grow 10Ã and beyond.
+What did you think of this doc?
+Send your review!
+Edit this page

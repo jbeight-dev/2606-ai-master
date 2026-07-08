@@ -1,0 +1,52 @@
+[
+  {
+    "question": "StarRocks에서 Hash Bucketing과 Random Bucketing의 가장 큰 차이는 무엇인가요?",
+    "answer": "Hash Bucketing은 하나 이상의 컬럼을 해시하여 태블릿에 데이터를 분배하며, bucket pruning·colocate join·local aggregation을 지원해 쿼리 지역성이 좋지만 카디널리티가 낮으면 데이터 skew에 취약합니다. Random Bucketing은 라운드로빈 방식으로 균등하게 분배되어 skew에 강하고(bucket_size 설정 시 자동 확장) 설계 부담이 없지만, bucket pruning과 colocate join을 지원하지 않고 현재는 Duplicate Key 테이블에만 사용할 수 있습니다.",
+    "source": "Bucketing.txt"
+  },
+  {
+    "question": "Partitioning과 Bucketing은 각각 어떤 목적으로 사용되며 어떻게 구분해야 하나요?",
+    "answer": "Partitioning은 조대(coarse-grain) 단위의 데이터 프루닝과 TTL·GDPR 삭제 같은 라이프사이클 관리(메타데이터 단위 연산)를 목적으로 하고, Bucketing은 태블릿 단위로 데이터를 나눠 쿼리 병렬성과 부하 분산(파인그레인 지역성)을 담당합니다. 일반적으로 쿼리의 80% 이상이 시간 필터를 포함하면 date_trunc 기반 시간 파티션을 우선 고려하고, 분산은 해시 버킷으로 처리합니다.",
+    "source": "Partitioning.txt"
+  },
+  {
+    "question": "Primary Key 테이블에서 권장되지 않는 인덱스 유형은 무엇이며 그 이유는?",
+    "answer": "In-memory(Full in-memory primary key index) 방식은 권장되지 않습니다. 메모리 자원을 크게 낭비할 수 있기 때문이며, 대신 로컬 디스크 기반의 persistent index(enable_persistent_index=true, persistent_index_type=LOCAL)나, shared-data 클러스터라면 원격 오브젝트 스토리지에 인덱스를 저장하는 cloud-native persistent index(persistent_index_type=CLOUD_NATIVE)를 권장합니다.",
+    "source": "Primary Key tables.txt"
+  },
+  {
+    "question": "Data Cache는 이전의 File Cache와 비교했을 때 어떤 장점이 있으며 언제부터 지원되나요?",
+    "answer": "Data Cache는 v3.1.7 및 v3.2.3부터 shared-data 클러스터의 쿼리 가속을 위해 도입되었으며, 필요한 블록(MB 단위)만 원격 스토리지에서 로드하는 반면 File Cache는 필요한 행 수와 무관하게 파일 전체를 백그라운드에서 로드합니다. 그 결과 Data Cache는 오브젝트 스토리지 접근 비용 절감, 로컬 디스크/CPU 부하 감소, 더 나은 캐시 적중률, 디스크 과사용 방지 등의 장점을 가집니다.",
+    "source": "Data Cache.txt"
+  },
+  {
+    "question": "Query Cache가 정상적으로 동작하기 위해 충족해야 하는 조건은 무엇인가요?",
+    "answer": "쿼리 엔진이 Pipeline이어야 하고(enable_pipeline_engine=true), 네이티브 OLAP 테이블(v2.5+) 또는 cloud-native 테이블(v3.0+) 대상의 집계 쿼리여야 하며, rand·random·uuid·sleep 같은 비결정적 함수를 포함하지 않아야 합니다. 또한 각 BE가 처리할 태블릿 수가 파이프라인 드라이버 수(DOP) 이상이어야 per-tablet 캐싱이 작동하며, 외부 테이블이나 비동기 머티리얼라이즈드 뷰를 참조하는 쿼리는 지원되지 않습니다.",
+    "source": "Query Cache.txt"
+  },
+  {
+    "question": "Colocate Join이 로컬 조인으로 수행되기 위한 전제 조건은 무엇인가요?",
+    "answer": "두 테이블이 동일한 Colocation Group(CG)에 속해야 하며, 이를 위해서는 버킷팅 키의 타입·개수·순서와 버킷 수가 동일해야 합니다(컬럼명은 달라도 무방). 또한 각 테이블의 버킷 시퀀스-BE 매핑이 CG의 Parent Table과 동일해야 하며, 조인 조건이 버킷팅 키 컬럼을 포함해야 합니다. Group이 Unstable 상태이면 자동으로 일반 Join으로 성능이 저하됩니다.",
+    "source": "Colocate Join.txt"
+  },
+  {
+    "question": "Join 실행 방식을 명시적으로 지정하려면 어떤 Query Hint 문법을 사용하나요?",
+    "answer": "JOIN [BROADCAST | SHUFFLE | BUCKET | COLOCATE | UNREORDER] ... 형태의 Join Hint를 사용합니다. 예: select k1 from t1 join [COLOCATE] t2 on t1.k1 = t2.k2 ... 단, Join Hint를 사용하면 옵티마이저가 Join Reorder를 수행하지 않으므로 더 작은 테이블을 오른쪽에 직접 배치해야 하며, EXPLAIN으로 실제 적용 여부를 확인할 수 있습니다.",
+    "source": "Query Hint.txt"
+  },
+  {
+    "question": "Table clustering(정렬 키)에서 Sparse Prefix Index는 어떻게 밀리초 단위 포인트 조회를 가능하게 하나요?",
+    "answer": "Sparse prefix index는 정렬 키 값을 약 1,000행마다 하나씩 저장하는 인덱스로, 이진 탐색으로 올바른 페이지를 먼저 찾은 뒤 해당 페이지 한 번의 디스크 읽기(대부분 캐시됨)만으로 원하는 행을 반환합니다. 예를 들어 5,000만 행 테이블에서 ORDER BY (order_id)로 정렬해두면 약 50회의 키 비교만으로 서브 10ms 지연을 달성할 수 있습니다. 다만 prefix index는 첫 36바이트로 제한되므로, 앞쪽에 긴 VARCHAR 컬럼을 두면 뒤따르는 정렬 키 컬럼이 인덱싱 효과를 잃습니다.",
+    "source": "Table clustering.txt"
+  },
+  {
+    "question": "Query Feedback 기능은 무엇이며 어떤 워크플로우로 쿼리 플랜을 최적화하나요?",
+    "answer": "Query Feedback은 v3.4.0부터 지원되는 CBO(Cost-based Optimizer)의 실험적 기능으로, 실행 통계(관찰)를 기록했다가 느린 쿼리나 수동 지정 쿼리를 분석해 튜닝 가이드를 생성하고(분석), 이후 동일 쿼리 재실행 시 그 가이드를 적용해 플랜을 동적으로 최적화합니다(최적화). enable_plan_advisor(기본 true)로 슬로우 쿼리(기본 임계값 5초, slow_query_analyze_threshold)에 자동 적용되며, ALTER PLAN ADVISOR ADD <query>로 특정 쿼리를 수동 분석할 수도 있습니다. 단, 튜닝 가이드는 파라미터가 다른 동일 패턴 쿼리에는 적용되지 않고 FE 간 동기화도 지원되지 않습니다.",
+    "source": "Query Feedback.txt"
+  },
+  {
+    "question": "Query Profile을 활성화하는 방법과, 운영 환경에서 느린 쿼리만 프로파일링하려면 어떻게 설정하나요?",
+    "answer": "SET enable_profile = true; (세션) 또는 SET GLOBAL enable_profile = true;(전역)로 Query Profile을 활성화할 수 있습니다. 다만 상시 전역 활성화는 추가 오버헤드가 있어 운영 환경에는 권장되지 않으며, 대신 SET global big_query_profile_threshold = '30s';처럼 임계값을 설정하면 해당 시간을 초과하는 느린 쿼리에 대해서만 자동으로 프로파일을 캡처합니다(예: '500ms', '60m' 단위도 지정 가능).",
+    "source": "Query Profile Overview.txt"
+  }
+]

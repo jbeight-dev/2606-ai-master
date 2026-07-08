@@ -1,0 +1,5744 @@
+====================================================================================================
+FILE: Best Practices.txt
+====================================================================================================
+
+Best Practices
+Best Practices
+Overview
+Version: Stable-3.5
+On this page
+Best Practices
+These best practices are written by experienced database engineers. Designing for efficiency does more than improve query speed, it decreases costs by reducing storage, CPU, and object storage (e.g., S3) API costs.
+General table design
+â
+Three guides covering:
+Partitioning
+Clustering
+Bucketing
+Learn about:
+The differences between partitioning and bucketing
+When to partition
+How to choose an efficient sort key
+Choosing between hash and random bucketing
+Primary key tables
+â
+The
+Primary Key
+table uses a new storage engine designed by StarRocks. Its main advantage lies in supporting real-time data updates while ensuring efficient performance for complex ad-hoc queries. In real-time business analytics, decision-making can benefit from Primary Key tables, which use the newest data to analyze results in real-time, mitigating data latency in data analysis.
+Learn about:
+Choosing the type of primary key index
+Choosing the primary key
+Monitoring and managing memory use
+Tuning
+Query Tuning
+â
+Query tuning
+is essential for achieving high performance and reliability in StarRocks. This directory brings together practical guides, reference materials, and actionable recipes to help you analyze, diagnose, and optimize query performance at every stageâfrom writing SQL to interpreting execution details.
+Effective query tuning in StarRocks typically follows a top-down process:
+Identify the Problem
+Collect and Analyze Execution Information
+Locate the Root Cause
+Apply Tuning Strategies
+Validate and Iterate
+Whether you're a DBA, developer, or data engineer, these resources will help you:
+Diagnose and resolve slow or resource-intensive queries
+Understand optimizer choices and execution details
+Apply best practices and advanced tuning strategies
+Start with the
+overview
+, dive into the references as needed, and use the recipes and tips to solve real-world performance challenges in StarRocks.
+What did you think of this doc?
+Send your review!
+Edit this page
+
+====================================================================================================
+FILE: Bucketing.txt
+====================================================================================================
+
+Bucketing
+Best Practices
+Bucketing
+Version: Stable-3.5
+On this page
+Bucketing
+A concise field guide to choosing between Hash Bucketing and Random Bucketing in StarRocks, including their mechanics, tradeâoffs, and recommended use cases.
+QuickâLook Comparison
+â
+Aspect
+Hash Bucketing
+Random Bucketing
+Example
+DISTRIBUTED BY HASH(id) BUCKETS 16
+DISTRIBUTED BY RANDOM
+Key declaration
+Required HASH(col1, â¦)
+None â rows assigned roundârobin
+Initial bucket count when omitted
+Autoâchosen at CREATE, then fixed
+Autoâchosen at CREATE; can grow if bucket_size set
+Tablet split / shrink
+Manual ALTER â¦ BUCKETS
+Automatic split â¢ growth only (â¥ v3.2)
+Skew resistance
+Depends on key cardinality
+High â uniform by design
+Bucket pruning
+â (filters, joins)
+ð« (full tablet scan)
+Colocate joins
+â
+ð«
+Local aggregation / bucket-shuffle joins
+â
+ð«
+Supported table types
+All
+Duplicate Key tables only
+Hash Bucketing
+â
+How it Works
+â
+Rows are assigned to tablets by hashing oneâ¯or more columns. Tablet count is fixed after creation unless manually altered.
+Requirements
+â
+Must pick a stable, evenly, highâcardinality key up front. The cardinality should typically be 1000 times more than the number of BE nodes to prevent data skew among hash buckets.
+Choose an appropriate bucket size initially, ideally ranging between 1 to 10 GB.
+Strengths
+â
+Query locality â selective filters and joins touch fewer tablets.
+Colocate joins â fact/dim tables can share hash keys for highâspeed joins.
+Predictable layout â rows with the same key always land together.
+Local aggregation & bucketâshuffle joins â identical hash layout across partitions enables local aggregation and reduces data shuffle costs for large join
+Weaknesses
+â
+Vulnerable to hot tablets if data distribution skews.
+Tablet count is static; scaling requires maintenance DDL.
+Insufficient tablets can adversely affect data ingestion, data compaction, and query execution parallelism.
+Excessive use of tablets will expand the metadata footprint.
+Example: DimensionâFact Join and Tablet Pruning
+â
+-- Fact table partitioned and hashâbucketed by (customer_id)
+CREATE
+TABLE
+sales
+(
+sale_id
+bigint
+,
+customer_id
+int
+,
+sale_date
+date
+,
+amount
+decimal
+(
+10
+,
+2
+)
+)
+ENGINE
+=
+OLAP
+DISTRIBUTED
+BY
+HASH
+(
+customer_id
+)
+BUCKETS
+48
+PARTITION
+BY
+date_trunc
+(
+'DAY'
+,
+sale_date
+)
+PROPERTIES
+(
+"colocate_with"
+=
+"group1"
+)
+;
+-- Dimension table hashâbucketed on the same key and bucket count colocated with the sales table
+CREATE
+TABLE
+customers
+(
+customer_id
+int
+,
+region
+varchar
+(
+32
+)
+,
+status
+tinyint
+)
+ENGINE
+=
+OLAP
+DISTRIBUTED
+BY
+HASH
+(
+customer_id
+)
+BUCKETS
+48
+PROPERTIES
+(
+"colocate_with"
+=
+"group1"
+)
+;
+-- StarRocks can do tablet pruning
+SELECT
+sum
+(
+amount
+)
+FROM
+sales
+WHERE
+customer_id
+=
+123
+-- StarRocks can do local aggregation
+SELECT
+customer_id
+,
+sum
+(
+amount
+)
+AS
+total_amount
+FROM
+sales
+GROUP
+BY
+customer_id
+ORDER
+BY
+total_amount
+DESC
+LIMIT
+100
+;
+-- StarRocks can do colocate join
+SELECT
+c
+.
+region
+,
+sum
+(
+s
+.
+amount
+)
+FROM
+sales s
+JOIN
+customers c
+USING
+(
+customer_id
+)
+WHERE
+s
+.
+sale_date
+BETWEEN
+'2025-01-01'
+AND
+'2025-01-31'
+GROUP
+BY
+c
+.
+region
+;
+What do you gain from this example?
+â
+Tablet pruning
+: The customer_id predicate
+WHERE customer_id = 123
+enables bucket pruning, allowing the query to access only a single tablet, which lowers latency & CPU cycles, especially for point-lookups.
+Local aggregation
+: when the hash distribution key is a subset of the aggregation key, StarRocks can bypass the shuffle aggregation phase, reducing the overall cost.
+Colocated join
+: because both tables share bucket number and key, each BE can join its local pair of tablets without network shuffle.
+When to Use
+â
+Stable schemas with wellâknown distribution filter/join keys.
+Data warehousing workloads that benefit from bucket pruning.
+You need some specific optimization like colocate join/bucket shuffle join/local aggregation
+You are using Aggregate/Primary Key tables.
+Random Bucketing
+â
+How it Works
+â
+Rows are assigned roundârobin; no key specified. With
+PROPERTIES ("bucket_size"="<bytes>")
+, StarRocks dynamically splits tablets as partitions grow (v3.2+).
+Strengths
+â
+Zero design debt
+âno keys, no bucket math.
+Skewâproof writes
+âuniform pressure across disks & BEs.
+Elastic growth
+âtablet splits keep ingest fast as data or cluster grows.
+Weaknesses
+â
+No bucket pruning
+âevery query scans all tablets in a partition.
+No colocated joins
+âkeyless layout prevents locality.
+Limited to
+Duplicate Key
+tables today.
+When to Use
+â
+Log/event or multiâtenant SaaS tables where keys change or skew.
+Writeâheavy pipelines where uniform ingest throughput is critical.
+Operational Guidelines
+â
+Pick a bucket size (e.g., 1â¯GiB) for random bucketing to enable autoâsplit.
+For hash bucketing, monitor tablet size; reâshard before tablets exceed 5â10â¯GiB
+What did you think of this doc?
+Send your review!
+Edit this page
+
+====================================================================================================
+FILE: Colocate Join.txt
+====================================================================================================
+
+Colocate Join
+Query Acceleration
+Colocate Join
+Version: Stable-3.5
+On this page
+Colocate Join
+For shuffle join and broadcast join, if the join condition is met, the data rows of the two joining tables are merged into a single node to complete the join. Neither of these two join methods can avoid latency or overhead caused by data network transmission between nodes.
+The core idea is to keep bucketing key, number of copies, and copy placement consistent for tables in the same Colocation Group. If the join column is a bucketing key, the computing node only needs to do local join without getting data from other nodes. Colocate Join supports equi joins.
+This document introduces the principle, implementation, usage, and considerations of Colocate Join.
+Terminology
+â
+Colocation Group (CG)
+: A CG will contain one or more Tables. The Tables within a CG have the same bucketing and replica placement, and are described using the Colocation Group Schema.
+Colocation Group Schema (CGS)
+: A CGS contains the bucketing key, number of buckets, and number of replicas of a CG.
+Principle
+â
+Colocate Join is to form a CG with a set of Tables having the same CGS, and ensure that the corresponding bucket copies of these Tables will fall on the same set of BE nodes. When the tables in the CG perform Join operations on the bucketed columns, the local data can be joined directly, saving time from transferring data between nodes.
+Bucket Seq is obtained by
+hash(key) mod buckets
+. Suppose a Table has 8 buckets, then there are [0, 1, 2, 3, 4, 5, 6, 7] 8 buckets, and each Bucket has one or more sub-tables, the number of sub-tables depends on the number of partitions. If it is a multi-partitioned table, there will be multiple tablets.
+In order to have the same data distribution, tables within the same CG must comply with the following.
+Tables within the same CG must have the identical  bucketing key (type, number, order) and the same number of buckets so that the data slices of multiple tables can be distributed and controlled one by one. The bucketing key is the columns specified in the table creation statement
+DISTRIBUTED BY HASH(col1, col2, ...)
+. The bucketing key determines which columns of data are Hashed into different Bucket Seqs. The name of the bucketing key can vary for tables within the same CG.The bucketing columns can be different in the creation statement, but the order of the corresponding data types in
+DISTRIBUTED BY HASH(col1, col2, ...)
+should be exactly the same .
+Tables within the same CG may have different numbers of partitions and different partition keys.
+When creating a table, the CG is specified by the attribute
+"colocate_with" = "group_name"
+in the table PROPERTIES. If the CG does not exist, it means the table is the first table of the CG and called Parent Table. The data distribution of the Parent Table (type, number and order of split bucket keys, number of copies and number of split buckets) determines the CGS. If the CG exists, check whether the data distribution of the table is consistent with the CGS.
+The copy placement of tables within the same CG satisfies:
+The mapping between the Bucket Seq and BE nodes of all the Tables is the same as that of the Parent Table.
+The mapping between the Bucket Seq and BE nodes of all the Partitions in the Parent Table is the same as that of the first Partition.
+The mapping between the Bucket Seq and BE nodes of the first Partition of the Parent Table is determined using the native Round Robin algorithm.
+The consistent data distribution and mapping guarantee that the data rows with the same value taken by bucketing key fall on the same BE. Therefore, when using the bucketing key to  join columns, only local joins are required.
+Usage
+â
+Table creation
+â
+When creating a table, you can specify the attribute
+"colocate_with" = "group_name"
+in PROPERTIES to indicate that the table is a Colocate Join table and belongs to a specified Colocation Group.
+NOTE
+From version 2.5.4, Colocate Join can be performed on tables from different databases. You only need to specify the same
+colocate_with
+property when you create tables.
+For example:
+CREATE
+TABLE
+tbl
+(
+k1
+int
+,
+v1
+int
+sum
+)
+DISTRIBUTED
+BY
+HASH
+(
+k1
+)
+BUCKETS
+8
+PROPERTIES
+(
+"colocate_with"
+=
+"group1"
+)
+;
+If the specified Group does not exist, StarRocks automatically creates a Group that only contains the current table. If the Group exists, StarRocks checks to see if the current table meets the Colocation Group Schema. If so, it creates the table and adds it to the Group. At the same time, the table creates a partition and a tablet based on the data distribution rules of the existing Group.
+A Colocation Group belongs to a database. The name of a Colocation Group is unique within a database. In the internal storage, the full name of the Colocation Group is
+dbId_groupName
+, but you only perceive
+groupName
+.
+NOTE
+If you specify the same Colocation Group to associate tables from different databases for Colocate Join, the Colocation Group exists in each of these databases. You can run
+show proc "/colocation_group"
+to check the Colocation Groups in different databases.
+Delete
+â
+A complete deletion is a deletion from the Recycle Bin. Normally, after a table is deleted with the
+DROP TABLE
+command, by default it will stay in the recycle bin for a day before being deleted. When the last table in a Group is completely deleted, the Group will also be deleted automatically.
+View group information
+â
+The following command allows you to view the Group information that already exists in the cluster.
+SHOW PROC '/colocation_group';
++-------------+--------------+--------------+------------+----------------+----------+----------+
+| GroupId     | GroupName    | TableIds     | BucketsNum | ReplicationNum | DistCols | IsStable |
++-------------+--------------+--------------+------------+----------------+----------+----------+
+| 10005.10008 | 10005_group1 | 10007, 10040 | 10         | 3              | int(11)  | true     |
++-------------+--------------+--------------+------------+----------------+----------+----------+
+GroupId
+: The cluster-wide unique identifier of a Group, with the first half being the db id and the second half being the group id.
+GroupName
+: The full name of the Group.
+TabletIds
+: The list of ids of the Tables  in the Group.
+BucketsNum
+: The number of buckets.
+ReplicationNum
+: The number of replicas.
+DistCols
+: Distribution columns, i.e. bucketing column type.
+IsStable
+: Whether the Group is stable (for the definition of stability, see the section of Colocation Replica Balancing and Repair).
+You can further view the data distribution of a Group with the following command.
+SHOW PROC '/colocation_group/10005.10008';
++-------------+---------------------+
+| BucketIndex | BackendIds          |
++-------------+---------------------+
+| 0           | 10004, 10002, 10001 |
+| 1           | 10003, 10002, 10004 |
+| 2           | 10002, 10004, 10001 |
+| 3           | 10003, 10002, 10004 |
+| 4           | 10002, 10004, 10003 |
+| 5           | 10003, 10002, 10001 |
+| 6           | 10003, 10004, 10001 |
+| 7           | 10003, 10004, 10002 |
++-------------+---------------------+
+BucketIndex
+: Subscript of the sequence of buckets.
+BackendIds
+: The ids of BE nodes where the bucketing data slices t are located.
+Note: The above command requires the NODE privilege or the
+cluster_admin
+role. Regular users cannot access it.
+Modifying Table Group Properties
+â
+You can modify the Colocation Group properties of a table. For example:
+ALTER
+TABLE
+tbl
+SET
+(
+"colocate_with"
+=
+"group2"
+)
+;
+If the table has not been assigned to a Group before, the command will check the Schema and add the table to the Group (the Group will be created first if it does not exist). If the table has been previously assigned to another Group, the command will remove the table from the original Group and add it to the new Group (the Group will be created first if it does not exist).
+You can also remove the Colocation properties of a table with the following command.
+ALTER
+TABLE
+tbl
+SET
+(
+"colocate_with"
+=
+""
+)
+;
+Other related operations
+â
+When adding a partition using
+ADD PARTITION
+or modifying the number of copies to a table with the Colocation attribute, StarRocks checks if the operation will violate the Colocation Group Schema and rejects it if it does.
+Colocation replica balancing and repair
+â
+The replicas distribution of a Colocation table needs to follow the distribution rules specified in the Group schema, so it differs from normal sharding in terms of replica repair and balancing.
+The Group itself has a
+stable
+property. When
+stable
+is
+true
+, it means that no changes are being made to table slices in the Group and the Colocation feature is working properly. When
+stable
+is
+false
+, it means that some table slices in the current Group are being repaired or migrated, and the Colocate Join of the affected tables will degrade to a normal Join.
+Replica repair
+â
+Replicas can only be stored on the specified BE node. StarRocks will look for the least loaded BE to replace an unavailable BE (e.g.,down, decommission),. After the replacement, all the bucketing data slices on the old BE are repaired. During migration, the Group is marked as
+Unstable
+.
+Replica balancing
+â
+StarRocks tries to distribute the Colocation table slices evenly across all BE nodes. Balancing for normal tables is at the  replica level, that is, each replica individually finds a lower-load BE node. Balancing for Colocation tables is at the Bucket level, that is, all replicas within a Bucket are migrated together. We use a simple balancing algorithm that distributes
+BucketsSequnce
+evenly across all BE nodes without considering the actual size of the replicas but only the number of replicas. The exact algorithm can be found in the code comments in
+ColocateTableBalancer.java
+.
+Note 1: The current Colocation replica balancing and repair algorithm may not work well for StarRocks clusters with heterogeneous deployment. The so-called heterogeneous deployment means that the disk capacity, number of disk, and disk type (SSD and HDD) of BE nodes are not consistent. In the case of heterogeneous deployment, it may happen that a small-capacity BE node stores the same number of replicas as a large-capacity BE node.
+Note 2: When a Group is in the Unstable state, the Join of its tables will degrade to a normal Join, which may significantly degrade the query performance of the cluster. If you do not want the system to be automatically balanced, set the FE configuration
+disable_colocate_balance
+to disable automatic balancing and  enable it back at the appropriate time. (See the section Advanced Operations (#Advanced Operations) for details)
+Query
+â
+The Colocation table is queried in the same way as a normal table. If the Group where the Colocation table is located is in Unstable state, it will automatically degrade to a normal Join, as illustrated by the following example.
+Table 1:
+CREATE
+TABLE
+`
+tbl1
+`
+(
+`
+k1
+`
+date
+NOT
+NULL
+COMMENT
+""
+,
+`
+k2
+`
+int
+(
+11
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+v1
+`
+int
+(
+11
+)
+SUM
+NOT
+NULL
+COMMENT
+""
+)
+ENGINE
+=
+OLAP
+AGGREGATE
+KEY
+(
+`
+k1
+`
+,
+`
+k2
+`
+)
+PARTITION
+BY
+RANGE
+(
+`
+k1
+`
+)
+(
+PARTITION
+p1
+VALUES
+LESS THAN
+(
+'2019-05-31'
+)
+,
+PARTITION
+p2
+VALUES
+LESS THAN
+(
+'2019-06-30'
+)
+)
+DISTRIBUTED
+BY
+HASH
+(
+`
+k2
+`
+)
+BUCKETS
+6
+PROPERTIES
+(
+"colocate_with"
+=
+"group1"
+)
+;
+INSERT
+INTO
+tbl1
+VALUES
+(
+"2015-09-12"
+,
+1000
+,
+1
+)
+,
+(
+"2015-09-13"
+,
+2000
+,
+2
+)
+;
+Table 2:
+CREATE
+TABLE
+`
+tbl2
+`
+(
+`
+k1
+`
+datetime
+NOT
+NULL
+COMMENT
+""
+,
+`
+k2
+`
+int
+(
+11
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+v1
+`
+double
+SUM
+NOT
+NULL
+COMMENT
+""
+)
+ENGINE
+=
+OLAP
+AGGREGATE
+KEY
+(
+`
+k1
+`
+,
+`
+k2
+`
+)
+DISTRIBUTED
+BY
+HASH
+(
+`
+k2
+`
+)
+BUCKETS
+6
+PROPERTIES
+(
+"colocate_with"
+=
+"group1"
+)
+;
+INSERT
+INTO
+tbl2
+VALUES
+(
+"2015-09-12 00:00:00"
+,
+3000
+,
+3
+)
+,
+(
+"2015-09-12 00:00:00"
+,
+4000
+,
+4
+)
+;
+View query plan:
+EXPLAIN SELECT * FROM tbl1 INNER JOIN tbl2 ON (tbl1.k2 = tbl2.k2);
++-------------------------------------------------------------------------+
+| Explain String                                                          |
++-------------------------------------------------------------------------+
+| PLAN FRAGMENT 0                                                         |
+|  OUTPUT EXPRS:1: k1 | 2: k2 | 3: v1 | 4: k1 | 5: k2 | 6: v1             |
+|   PARTITION: UNPARTITIONED                                              |
+|                                                                         |
+|   RESULT SINK                                                           |
+|                                                                         |
+|   3:EXCHANGE                                                            |
+|                                                                         |
+| PLAN FRAGMENT 1                                                         |
+|  OUTPUT EXPRS:                                                          |
+|   PARTITION: RANDOM                                                     |
+|                                                                         |
+|   STREAM DATA SINK                                                      |
+|     EXCHANGE ID: 03                                                     |
+|     UNPARTITIONED                                                       |
+|                                                                         |
+|   2:HASH JOIN                                                           |
+|   |  join op: INNER JOIN (COLOCATE)                                     |
+|   |  colocate: true                                                     |
+|   |  equal join conjunct: 5: k2 = 2: k2                                 |
+|   |                                                                     |
+|   |----1:OlapScanNode                                                   |
+|   |       TABLE: tbl1                                                   |
+|   |       PREAGGREGATION: OFF. Reason: Has can not pre-aggregation Join |
+|   |       partitions=1/2                                                |
+|   |       rollup: tbl1                                                  |
+|   |       tabletRatio=6/6                                               |
+|   |       tabletList=15344,15346,15348,15350,15352,15354                |
+|   |       cardinality=1                                                 |
+|   |       avgRowSize=3.0                                                |
+|   |                                                                     |
+|   0:OlapScanNode                                                        |
+|      TABLE: tbl2                                                        |
+|      PREAGGREGATION: OFF. Reason: None aggregate function               |
+|      partitions=1/1                                                     |
+|      rollup: tbl2                                                       |
+|      tabletRatio=6/6                                                    |
+|      tabletList=15373,15375,15377,15379,15381,15383                     |
+|      cardinality=1                                                      |
+|      avgRowSize=3.0                                                     |
++-------------------------------------------------------------------------+
+40 rows in set (0.03 sec)
+If a Colocate Join takes effect, the Hash Join node displays
+colocate: true
+.
+If it doesnât take effect, the query plan is as follows:
++----------------------------------------------------+
+| Explain String                                     |
++----------------------------------------------------+
+| PLAN FRAGMENT 0                                    |
+|  OUTPUT EXPRS:`tbl1`.`k1` |                        |
+|   PARTITION: RANDOM                                |
+|                                                    |
+|   RESULT SINK                                      |
+|                                                    |
+|   2:HASH JOIN                                      |
+|   |  join op: INNER JOIN (BROADCAST)               |
+|   |  hash predicates:                              |
+|   |  colocate: false, reason: group is not stable  |
+|   |    `tbl1`.`k2` = `tbl2`.`k2`                   |
+|   |  tuple ids: 0 1                                |
+|   |                                                |
+|   |----3:EXCHANGE                                  |
+|   |       tuple ids: 1                             |
+|   |                                                |
+|   0:OlapScanNode                                   |
+|      TABLE: tbl1                                   |
+|      PREAGGREGATION: OFF. Reason: No AggregateInfo |
+|      partitions=0/2                                |
+|      rollup: null                                  |
+|      buckets=0/0                                   |
+|      cardinality=-1                                |
+|      avgRowSize=0.0                                |
+|      numNodes=0                                    |
+|      tuple ids: 0                                  |
+|                                                    |
+| PLAN FRAGMENT 1                                    |
+|  OUTPUT EXPRS:                                     |
+|   PARTITION: RANDOM                                |
+|                                                    |
+|   STREAM DATA SINK                                 |
+|     EXCHANGE ID: 03                                |
+|     UNPARTITIONED                                  |
+|                                                    |
+|   1:OlapScanNode                                   |
+|      TABLE: tbl2                                   |
+|      PREAGGREGATION: OFF. Reason: null             |
+|      partitions=0/1                                |
+|      rollup: null                                  |
+|      buckets=0/0                                   |
+|      cardinality=-1                                |
+|      avgRowSize=0.0                                |
+|      numNodes=0                                    |
+|      tuple ids: 1                                  |
++----------------------------------------------------+
+The HASH JOIN node will show the corresponding reason:
+colocate: false, reason: group is not stable
+. An EXCHANGE node will be generated at the same time.
+Advanced operations
+â
+FE configuration items
+â
+disable_colocate_relocate
+Whether to disable automatic Colocation replica repair for StarRocks. The default is false, which means it is turned on. This parameter only affects replica repair for Colocation tables, not for normal tables.
+disable_colocate_balance
+Whether to disable automatic Colocation replica balancing for StarRocks. The default is false, which means it is turned on. This parameter only affects the replica balancing of Colocation tables, not for normal tables.
+disable_colocate_join
+You can disable Colocate join at session granularity by changing this variable.
+disable_colocate_join
+The Colocate join function can be disabled by changing this variable.
+HTTP Restful API
+â
+StarRocks provides several HTTP Restful APIs related to Colocate Join for viewing and modifying Colocation Groups.
+This API is implemented on the FE and can be accessed using
+fe_host:fe_http_port
+with
+db_admin
+and
+user_admin
+permissions.
+View all Colocation information of a cluster
+curl
+--location-trusted -u
+<
+username
+>
+:
+<
+password
+>
+'http://<fe_host>:<fe_http_port>/api/colocate'
+// Returns the internal Colocation information in Json format.
+{
+"colocate_meta"
+:
+{
+"groupName2Id"
+:
+{
+"g1"
+:
+{
+"dbId"
+:
+10005
+,
+"grpId"
+:
+10008
+}
+}
+,
+"group2Tables"
+:
+{
+}
+,
+"table2Group"
+:
+{
+"10007"
+:
+{
+"dbId"
+:
+10005
+,
+"grpId"
+:
+10008
+}
+,
+"10040"
+:
+{
+"dbId"
+:
+10005
+,
+"grpId"
+:
+10008
+}
+}
+,
+"group2Schema"
+:
+{
+"10005.10008"
+:
+{
+"groupId"
+:
+{
+"dbId"
+:
+10005
+,
+"grpId"
+:
+10008
+}
+,
+"distributionColTypes"
+:
+[
+{
+"type"
+:
+"INT"
+,
+"len"
+:
+-1
+,
+"isAssignedStrLenInColDefinition"
+:
+false
+,
+"precision"
+:
+0
+,
+"scale"
+:
+0
+}
+]
+,
+"bucketsNum"
+:
+10
+,
+"replicationNum"
+:
+2
+}
+}
+,
+"group2BackendsPerBucketSeq"
+:
+{
+"10005.10008"
+:
+[
+[
+10004
+,
+10002
+]
+,
+[
+10003
+,
+10002
+]
+,
+[
+10002
+,
+10004
+]
+,
+[
+10003
+,
+10002
+]
+,
+[
+10002
+,
+10004
+]
+,
+[
+10003
+,
+10002
+]
+,
+[
+10003
+,
+10004
+]
+,
+[
+10003
+,
+10004
+]
+,
+[
+10003
+,
+10004
+]
+,
+[
+10002
+,
+10004
+]
+]
+}
+,
+"unstableGroups"
+:
+[
+]
+}
+,
+"status"
+:
+"OK"
+}
+Mark the Group as Stable or Unstable
+# Mark as Stable
+curl
+-XPOST
+--location-trusted -u
+<
+username
+>
+:
+<
+password
+>
+â
+'http://<fe_host>:<fe_http_port>/api/colocate/group_stable?db_id=<dbId>&group_id=<grpId>â'
+# Mark as Unstable
+curl
+-XPOST
+--location-trusted -u
+<
+username
+>
+:
+<
+password
+>
+â
+'http://<fe_host>:<fe_http_port>/api/colocate/group_unstable?db_id=<dbId>&group_id=<grpId>â'
+If the returned result is
+200
+, the Group is successfully marked as Stable or Unstable.
+Set the data distribution of a Group
+This interface allows you to force the number distribution of a Group.
+POST /api/colocate/bucketseq?db_id=10005&group_id= 10008
+Body:
+[[10004,10002],[10003,10002],[10002,10004],[10003,10002],[10002,10004],[10003,10002],[10003,10004],[10003,10004],[10003,10004],[10002,10004]]
+returns: 200
+Where
+Body
+is
+BucketsSequence
+represented as a nested array and the ids of the BEs in which bucketing slices are located.
+Note that to use this command, you may need to set the FE configuration
+disable_colocate_relocate
+and
+disable_colocate_balance
+to true, that is, to disable the system to perform automatic Colocation replica repair and balancing. Otherwise, it may be automatically reset by the system after modification.
+What did you think of this doc?
+Send your review!
+Edit this page
+
+====================================================================================================
+FILE: Data Cache.txt
+====================================================================================================
+
+Data Cache
+Query Acceleration
+Caching
+Data Cache
+Version: Stable-3.5
+On this page
+Data Cache
+From v3.1.7 and v3.2.3 onwards, StarRocks introduced Data Cache to accelerate queries in shared-data clusters, replacing File Cache in earlier versions. Data Cache loads data from remote storage in blocks (on the order of MBs) as needed, while File Cache loads entire data files each time in the background, regardless of how many data rows are actually needed.
+Compared to File Cache, Data Cache has the following advantages:
+Fewer reads from object storage, meaning less cost on access to object storage (if your object storage charges based on access frequency).
+Less write pressure on local disks and CPU usage, thus less impact on other loading or query tasks (because background loading threads are no longer needed).
+Optimized cache effectiveness (because File Cache may load less frequently used data in the file).
+Optimized control over the cached data, thus avoiding overwhelmed local disks caused by excessive data failed to be evicted by File Cache.
+Enable Data Cache
+â
+From v3.4.0 onwards, StarRocks uses a unified Data Cache instance for queries against external catalogs and cloud-native tables (in shared-data clusters).
+Configure Data Cache
+â
+You can configure Data Cache using the following CN(BE) configuration items:
+Cache directory
+â
+storage_root_path
+(In shared-data clusters, this item is used to specify the root path where the cached data is stored.)
+Cache disk size
+â
+datacache_disk_size
+starlet_star_cache_disk_size_percent
+The disk size of the cache in a shared-data cluster takes the greater value between
+datacache_disk_size
+and
+starlet_star_cache_disk_size_percent
+.
+View Data Cache status
+â
+Execute the following statement to view the root path that stores the cached data:
+SELECT
+*
+FROM
+information_schema
+.
+be_configs
+WHERE
+NAME
+LIKE
+"%storage_root_path%"
+;
+Usually, the cached data is stored under the sub-path
+datacache/
+of your
+storage_root_path
+.
+Execute the following statement to view the maximum percentage of storage that Data Cache can use:
+SELECT
+*
+FROM
+information_schema
+.
+be_configs
+WHERE
+NAME
+LIKE
+"%starlet_star_cache_disk_size_percent% or %datacache_disk_size%"
+;
+Check whether a query hits Data Cache
+â
+You can check whether a query hits Data Cache by analyzing the following metrics in the query profile:
+CompressedBytesReadRemote
+: the size of data that the system reads from the remote storage system.
+IOTimeRemote
+: the I/O time that the system spent on reading data from the remote storage system.
+If these values are not zero, it implies that the query has missed the data cache and the system has to read data from the remote storage system.
+Monitor Data Cache
+â
+StarRocks provides various metrics that monitor Data Cache.
+Dashboard templates
+â
+You can download the following Grafana Dashboard templates based on your StarRocks environment:
+Dashboard template for StarRocks shared-data cluster on virtual machines
+Dashboard template for StarRocks shared-data cluster on Kubernetes
+Important metrics
+â
+fslib read io_latency
+â
+Records the read latency of Data Cache.
+fslib write io_latency
+â
+Records the write latency of Data Cache.
+fslib star cache meta memory size
+â
+Records the estimated memory usage of Data Cache.
+fslib star cache data disk size
+â
+Records the actual disk usage of Data Cache.
+Disable Data Cache
+â
+To disable Data Cache, you need to add the following configuration to the CN configuration file
+cn.conf
+, and restart the CN nodes:
+datacache_enable = false
+storage_root_path =
+Clear cached data
+â
+You can clear the cached data in case of emergencies. This will not affect the original data in your remote storage.
+Follow these steps to clear the cached data on a CN node:
+Remove the sub-directory that stores the data.
+Example:
+# Suppose `storage_root_path = /data/disk1;/data/disk2`
+rm
+-rf
+/data/disk1/datacache/
+rm
+-rf
+/data/disk2/datacache/
+Restart the CN node.
+Usage notes
+â
+If the
+datacache.enable
+property is set to
+false
+for a cloud-native table, Data Cache will not be enabled for the table.
+If the
+datacache.partition_duration
+property is set to a specific time range, data beyond the time range will not be cached.
+After downgrading a shared-data cluster from v3.3 to v3.2.8 and earlier, if you want to re-use the cached data in Data Cache, you need to manually rename the Blockfile in the directory
+starlet_cache
+by changing the file name format from
+blockfile_{n}.{version}
+to
+blockfile_{n}
+, that is, to remove the suffix of version information. v3.2.9 and later versions are compatible with the file name format in v3.3, so you do not need to perform this operation manually. You can change the name by running the following shell script:
+#!/bin/bash
+# Replace <starlet_cache_path> with the directory of Data Cache of your cluster, for example, /usr/be/storage/starlet_cache.
+starlet_cache_path
+=
+"<starlet_cache_path>"
+for
+blockfile
+in
+${starlet_cache_path}
+/blockfile_*
+;
+do
+if
+[
+-f
+"
+$blockfile
+"
+]
+;
+then
+new_blockfile
+=
+$(
+echo
+"
+$blockfile
+"
+|
+cut
+-d
+'.'
+-f1
+)
+mv
+"
+$blockfile
+"
+"
+$new_blockfile
+"
+fi
+done
+Known issues
+â
+High memory usage
+â
+Description: While the cluster is running under low-load conditions, the total memory usage of the CN node is far beyond the sum of each module's memory usage.
+Identification: If the sum of
+fslib star cache meta memory size
+and
+fslib star cache data memory size
+takes a significant proportion of the total memory usage of the CN node, it might indicate this issue.
+Affected versions: v3.1.8 and earlier patch versions, and v3.2.3 and earlier patch versions
+Fixed versions: v3.1.9, v3.2.4
+Solutions:
+Upgrade the cluster to the fixed versions.
+If you do not want to upgrade the cluster, you can clear the directory
+${storage_root_path}/starlet_cache/star_cache/meta
+of the CN nodes, and restart the nodes.
+Q&A
+â
+Q1: Why does the Data Cache directory occupy much larger storage space (observed through
+du
+and
+ls
+commands) than the actual size of cached data?
+â
+The disk space occupied by Data Cache represents the historical peak usage and is irrelevant to the current actual cached data size. For example, if 100 GB of data is cached, the data size will become 200 GB after compaction. Then, after garbage collection (GC), the data size was reduced to 100 GB. However, the disk space occupied by Data Cache will remain at its peak of 200 GB, even though the actual cached data within is 100 GB.
+Q2: Does Data Cache automatically evict data?
+â
+No. Data Cache evicts data only when it reaches the disk usage limit (
+80%
+of the disk space by default). The eviction process does not delete the data; it merely marks the disk space that stores the old cache as empty. The new cache will then overwrite the old cache. Therefore, even if eviction occurs, the disk usage will not decrease and will not affect actual usage.
+Q3: Why does the disk usage remain at the configured maximum level and not decrease?
+â
+Refer to Q2. Data Cache eviction mechanism does not delete the cached data but marks the old data as overwritable. Hence, the disk usage will not decrease.
+Q4: Why does the disk usage of Data Cache remain at the same level after I dropped a table and the table files are deleted from remote storage?
+â
+Dropping a table does not trigger the deletion of data in the Data Cache. The cache of the deleted table will gradually be evicted over time based on Data Cache's LRU (Least Recently Used) logic, and this does not affect actual usage.
+Q5: Why does the actual disk usage reach 90% or more even though 80% disk capacity is configured?
+â
+The disk usage by Data Cache is accurate and will not exceed the configured limit. The excessive disk usage may be caused by:
+Log files generated during runtime.
+Core files generated by CN crashes.
+Persistent indexes of Primary Key tables (stored under
+${storage_root_path}/persist/
+).
+Mixed deployments of BE/CN/FE instances sharing the same disk.
+Disk issues, for example, the ext3 file system is used.
+You can execute
+du -h . -d 1
+in the disk root directory or sub-directories to check the specific space-occupying directories, and then delete the unexpected portions. You can also reduce the disk capacity limit of Data Cache by configuring
+starlet_star_cache_disk_size_percent
+.
+Q6: Why is there a significant difference in disk usage of Data Cache between nodes?
+â
+It is impossible to ensure consistent cache usage across nodes due to the inherent limitations of single-node caching. As long as it does not affect query latency, differences in cache usage are acceptable. This discrepancy may be caused by:
+Different time points at which the nodes were added to the cluster.
+Differences in the number of tablets owned by different nodes.
+Differences in the size of data owned by different tablets.
+Differences in compaction and GC situations across nodes.
+Nodes experiencing crashes or Out-Of-Memory (OOM) issues.
+In summary, the differences in cache usage are influenced by multiple factors.
+What did you think of this doc?
+Send your review!
+Edit this page
+
+====================================================================================================
+FILE: Explain Analyze(2).txt
+====================================================================================================
+
+Explain Analyze
+Best Practices
+Query Tuning
+Explain Analyze
+Version: Stable-3.5
+On this page
+Explain Analyze
+This document explains how to obtain and analyze text-based Query Profiles in StarRocks. It will help you understand query performance and find ways to optimize your SQL queries.
+Analyze Profiles of Existing Queries Using ANALYZE PROFILE
+â
+To analyze the text-based Profile of an existing (historical or running) query in you cluster, you first need to use the
+SHOW PROFILELIST
+statement to obtain a summary of the query. This command lists all queries that have finished successfully, failed with error, and those are still running (for more than 10 seconds and not yet finished). Through this statement, you can get the corresponding Query ID for subsequent analysis. The syntax is as follows:
+SHOW
+PROFILELIST
+[
+LIMIT
+<
+num
+>
+]
+;
+Examples:
+SHOW
+PROFILELIST
+;
+SHOW
+PROFILELIST
+LIMIT
+5
+;
+Output:
++--------------------------------------+---------------------+-------+----------+-----------------------------------------------------------------------------------------------------------------------------------+
+| QueryId                              | StartTime           | Time  | State    | Statement                                                                                                                         |
++--------------------------------------+---------------------+-------+----------+-----------------------------------------------------------------------------------------------------------------------------------+
+| a40456b2-8428-11ee-8d02-6a32f8c68848 | 2023-11-16 10:34:18 | 21ms  | Finished | SELECT ROUTINE_NAME FROM INFORMATION_SCHEMA.ROUTINES\n    WHERE ROUTINE_TYPE="FUNCTION" AND ROUTINE_SCHEMA = "None"               |
+| a3fc4060-8428-11ee-8d02-6a32f8c68848 | 2023-11-16 10:34:17 | 39ms  | Finished | select TABLE_NAME, COLUMN_NAME from information_schema.columns\n                                    where table_schema = 'Non ... |
+| a3f7d38d-8428-11ee-8d02-6a32f8c68848 | 2023-11-16 10:34:17 | 15ms  | Finished | select connection_id()                                                                                                            |
+| a3efbd3b-8428-11ee-8d02-6a32f8c68848 | 2023-11-16 10:34:17 | 16ms  | Finished | select connection_id()                                                                                                            |
+| a26ec286-8428-11ee-8d02-6a32f8c68848 | 2023-11-16 10:34:15 | 269ms | Error    | EXPLAIN ANALYZE  SELECT c_nation, s_nation, year(lo_orderdate) AS year , SUM(lo_revenue) AS revenue FROM lineorder_flat WHERE ...  |
++--------------------------------------+---------------------+-------+----------+-----------------------------------------------------------------------------------------------------------------------------------+
+Once you have the Query ID, you can proceed with Query Profile analysis using the
+ANALYZE PROFILE
+statement. The syntax is as follows:
+ANALYZE
+PROFILE
+FROM
+'<Query_ID>'
+[
+,
+<
+Node_ID
+>
+[
+,
+.
+.
+.
+]
+]
+Query_ID
+: The ID corresponding to the query, obtained from the
+SHOW PROFILELIST
+statement.
+Node_ID
+: Profile node ID. For nodes whose IDs are specified, StarRocks returns detailed metric information for those node. For nodes whose IDs are not specified, StarRocks only returns the summary information.
+The Profile includes the following sections:
+Summary: Summary information of the Profile.
+QueryID
+Version information
+Query status, including
+Finished
+,
+Error
+, and
+Running
+.
+Total query time.
+Memory usage
+Top 10 nodes with the highest CPU usage.
+Top 10 nodes with the highest memory usage.
+Session variables who has a different value from the default value.
+Fragments: Displays metrics for each node in each Fragment.
+Time, memory usage, cost estimate information, and output rows for each node.
+Nodes with a time usage percentage exceeding 30% are highlighted in red.
+Nodes with a time usage percentage exceeding 15% and less than 30% are highlighted in pink.
+Example 1: Querying the Query Profile without specifying node ID.
+Example 2: Querying the Query Profile and specifying node ID as
+0
+. StarRocks returns all detailed metrics for Node ID
+0
+and highlights metrics with high usage for easier problem identification.
+In addition, the above methods also support the display and analysis of Runtime Query Profile, that is, Profile generated for running queries. When the Query Profile feature is enabled, you can use this method to obtain the Profile of queries that are currently running for more than 10 seconds.
+Compared to those of the finished queries, the text-based Query Profile for running queries contains the following information:
+Operator status:
+â³: Operators not started. These operators may not have started execution due to dependency relationships.
+ð: Running operators.
+â: Operators that have finished execution.
+Overall progress: Calculated based on
+number of operators that have finished execution / total number of operators
+. Due to the lack of detailed information on data rows, this value may be slightly distorted.
+Operator progress: Calculated based on
+number of rows processed / total number of rows
+. If the total number of rows cannot be calculated, the progress is displayed as
+?
+.
+Example:
+Simulate a query for Profile Analysis Using EXPLAIN ANALYZE
+â
+StarRocks provides the
+EXPLAIN ANALYZE
+statement, allowing you to simulate and analyze the profile of a query directly. The syntax is as follows:
+EXPLAIN
+ANALYZE
+<
+sql_statement
+>
+When executing
+EXPLAIN ANALYZE
+, StarRocks will, by default, enable the Query Profile feature for the current session.
+Currently,
+EXPLAIN ANALYZE
+supports two types of SQL statements: SELECT statements and INSERT INTO statements. You can only simulate and analyze the Query Profile of INSERT INTO statements on internal tables within the default catalog of StarRocks. Please note that when simulating and analyzing the Query Profile of INSERT INTO statements, no actual data will be loaded. By default, the import transaction will be aborted to ensure that no unintended changes are made to the data during the analysis.
+Example 1: Simulate and analyze a SELECT statement. The query result are discarded.
+Example 2: Simulate and analyze an INSERT INTO statement. The loading transaction will be aborted.
+Limitations
+â
+EXPLAIN ANALYZE INSERT INTO
+statements are only supported for tables in the default catalog.
+To achieve better visual effects, the output text contains ANSI characters to provide color, highlighting, and other features. It is recommended to use the MyCLI client. For clients that do not support ANSI features, such as the MySQL client, there may be some slight display disorders. Usually, they will not affect the usage. For example:
+What did you think of this doc?
+Send your review!
+Edit this page
+
+====================================================================================================
+FILE: Partitioning.txt
+====================================================================================================
+
+Partitioning
+Best Practices
+Partitioning
+Version: Stable-3.5
+On this page
+Partitioning
+Fast analytics in StarRocks begin with a table layout that matches your query patterns. This guide distills handsâon experience into clear rules for
+partitioning
+, helping you:
+Scan less data
+via aggressive partition pruning
+Manage lifecycle tasks
+(TTL, GDPR deletes, tiering) with metadataâonly ops;
+Scale smoothly
+as tenant counts, data volume, or retention windows grow.
+Controlled write amplification
+âNew data lands in the âhotâ partition; compaction happens in historical partitions
+Keep this advice close when modeling a new table or refactoring an old oneâeach section gives purposeâdriven criteria, design heuristics, and operational guardârails so you avoid costly reâpartitioning down the road.
+Partitioning vs. Bucketingâdifferent jobs
+â
+Understanding the distinction between partitioning and bucketing is fundamental when designing performant StarRocks tables. While both help manage large datasets, they serve different purposes:
+Partitioning
+allows StarRocks to skip entire blocks of data at query time using partition pruning, and enables metadata-only lifecycle operations like dropping old or tenant-specific data.
+Bucketing
+, on the other hand, helps distribute data across tablets to parallelize query execution and balance load, especially when combined with hash functions.
+Aspect
+Partitioning
+Bucketing (Hash/Random)
+Primary goal
+Coarseâgrain data pruning and lifecycle control(TTL, archiving).
+Fineâgrain parallelism and data locality inside each partition.
+Planner visibility
+Partitions are catalog objects; FE can skip them via predicates.
+Only equality predicates support bucket pruning
+Lifecycle ops
+DROP PARTITION is metadataâonlyâideal for GDPR deletes, monthly rollâoff.
+Buckets canât be dropped; they change only with
+ALTER TABLE â¦ MODIFY DISTRIBUTED BY
+.
+Typical count
+10^2â10^4 per table (days, weeks, tenants).
+10â120 per partition; StarRocks
+BUCKETS xxx
+tunes this.
+Skew handling
+Merge or split partitions; consider composite/hybrid scheme.
+Raise bucket count, hash on compound key, isolate âwhalesâ, or use random bucketing
+Red flags
+>100 k partitions can introduce significant memory footprint for FE
+>200 k tablets per BE; tablets exceeding 10 GB may encounter compaction issues.
+When should I partition?
+â
+Table type
+Partition?
+Typical key
+Fact / event stream
+Yes
+date_trunc('day', event_time)
+Huge dimension (billions rows)
+Sometimes
+Time or business key change date
+Small dimension / lookup
+No
+Rely on hash distribution
+Choosing the partition key
+â
+Timeâfirst default
+âIf 80â¯% of queries include a time filter, lead with
+date_trunc('day', dt)
+.
+Tenant isolation
+âAdd
+tenant_id
+into the key when you need to manage the data in tenant basis
+Retention alignment
+âPut the column you plan to purge on into the key.
+Composite keys
+:
+PARTITION BY tenant_id, date_trunc('day', dt)
+prunes perfectly but creates
+#tenants Ã #days
+partitions. Keep below ââ¯100â¯k total or FE memory & BE compaction suffer.
+Picking granularity
+â
+The granularity of
+PARTITION BY date_trunc('day', dt)
+should be adjusted based on the use case. You can use "hour," "day," or "month," etc. See
+date_trunc
+Granularity
+Use when
+Pros
+Cons
+Daily (default)
+Most BI & reporting
+Few partitions (365/yr); simple TTL
+Less precise for "last 3 h" queries
+Hourly
+> 2 Ã tablet per day; IoT bursts
+Hotâspot isolation; 24 partitions/day
+8 700 partitions/yr
+Weekly / Monthly
+Historical archive
+Tiny metadata; merges easy
+Coarser pruning
+Rule of thumb
+: Keep each partition â¤â¯100â¯GB and â¤â¯20â¯k tablets/partition across replicas.
+Mixed granularity
+: Starting from version 3.4, StarRocks supports mixed granularity by merging historical partitions into coarser granularity.
+Example recipes
+â
+Clickâstream fact (singleâtenant)
+â
+CREATE
+TABLE
+click_stream
+(
+user_id
+BIGINT
+,
+event_time
+DATETIME
+,
+url STRING
+,
+.
+.
+.
+)
+DUPLICATE
+KEY
+(
+user_id
+,
+event_time
+)
+PARTITION
+BY
+date_trunc
+(
+'day'
+,
+event_time
+)
+DISTRIBUTED
+BY
+HASH
+(
+user_id
+)
+BUCKETS xxx
+;
+SaaS metrics (multiâtenant, pattern A)
+â
+Recommended for most SaaS workloads. Prunes on time, keeps tenant rows coâlocated.
+CREATE
+TABLE
+metrics
+(
+tenant_id
+INT
+,
+dt
+DATETIME
+,
+metric_name STRING
+,
+v
+DOUBLE
+)
+PRIMARY
+KEY
+(
+tenant_id
+,
+dt
+,
+metric_name
+)
+PARTITION
+BY
+date_trunc
+(
+'DAY'
+,
+dt
+)
+DISTRIBUTED
+BY
+HASH
+(
+tenant_id
+)
+BUCKETS xxx
+;
+Whale tenant composite (pattern B)
+â
+When tenant-specific DML/DDL is necessary or large-scale tenants are present, be cautious of potential partition explosion.
+CREATE
+TABLE
+activity
+(
+tenant_id
+INT
+,
+dt
+DATETIME
+,
+id
+BIGINT
+,
+.
+.
+.
+.
+)
+DUPLICATE
+KEY
+(
+dt
+,
+id
+)
+PARTITION
+BY
+tenant_id
+,
+date_trunc
+(
+'MONTH'
+,
+dt
+)
+DISTRIBUTED
+BY
+HASH
+(
+id
+)
+BUCKETS xxx
+;
+What did you think of this doc?
+Send your review!
+Edit this page
+
+====================================================================================================
+FILE: Primary Key tables.txt
+====================================================================================================
+
+Primary Key tables
+Best Practices
+Primary Key tables
+Version: Stable-3.5
+On this page
+Primary Key tables
+The Primary Key table uses a new storage engine designed by StarRocks. Its main advantage lies in supporting real-time data updates while ensuring efficient performance for complex ad-hoc queries. In real-time business analytics, decision-making can benefit from Primary Key tables, which use the newest data to analyze results in real-time, which can mitigate data latency in data analysis.
+However, the primary key is not a free lunch. If used improperly, it can lead to unnecessary resource waste.
+Therefore, in this section, we will guide you on how to use the primary key model more efficiently to achieve the desired results.
+Choosing Primary Key Index
+â
+The primary index is the most critical component in a Primary Key table. The primary key index which is used to store the mapping between the primary key values and the locations of the data rows identified by the primary key values.
+Currently, we support three types of primary key index:
+Full in-memory primary key index.
+PROPERTIES
+(
+"enable_persistent_index"
+=
+"false"
+)
+;
+Local disk based persistent primary key index.
+PROPERTIES
+(
+"enable_persistent_index"
+=
+"true"
+,
+"persistent_index_type"
+=
+"LOCAL"
+)
+;
+Cloud native persistent primary key index.
+PROPERTIES
+(
+"enable_persistent_index"
+=
+"true"
+,
+"persistent_index_type"
+=
+"CLOUD_NATIVE"
+)
+;
+We DO NOT recommend using in-memory indexing, as it can lead to significant memory resource waste.
+If you are using a shared-data (elastic) StarRocks cluster, we recommend opting for the cloud-native persistent primary index. Unlike the local disk based persistent primary index, it stores the complete index data on remote object storage, with local disks serving only as a cache. Compared to the local disk-based persistent primary index, its advantages include:
+No dependency on local disk capacity.
+No need to rebuild indexes after data shard rebalance.
+Choosing the Primary key
+â
+The primary key usually does not help accelerate queries. You can specify a column different from the primary key as the sort key using the
+ORDER BY
+clause to speed up queries. Therefore, when selecting a primary key, you only need to consider the uniqueness during data import and update processes.
+The larger the primary key, the more memory, I/O, and other resources it consumes. Therefore, it is generally recommended to avoid selecting too many or overly large columns as the primary key. The default maximum size for the primary key is 128 bytes, controlled by the
+primary_key_limit_size
+parameter in
+be.conf
+.
+You can increase
+primary_key_limit_size
+to select a larger primary key, but be aware that this will result in higher resource consumption.
+How much storage and memory space will a persistent index occupy?
+Formula for storage space cost
+â
+(key size + 8 bytes) * row count * 50%
+note
+50% is the estimated compression efficiency, the actual compression effect depends on the data itself.
+Formula for memory cost
+â
+min(l0_max_mem_usage * tablet cnt, update_memory_limit_percent * BE process memory);
+Memory usage
+â
+The memory used by Primary Key table can be monitored by mem_tracker:
+//View the overall memory statistics
+http://be_ip:be_http_port/mem_tracker
+// View primary key table memory statistics
+http://be_ip:be_http_port/mem_tracker?type=update
+// View primary key table memory statistics with more details
+http://be_ip:be_http_port/mem_tracker?type=update&upper_level=4
+update
+item in
+mem_tracker
+record whole memory used by Primary Key table, such as primary key index, delete vector and so on.
+You can also monitor this
+update
+item via metrics monitor service. For example, in Grafana, you can check update item via (item in the red box):
+More about Monitor and Alert with Prometheus and Grafana:
+https://docs.starrocks.io/docs/administration/management/monitoring/Monitor_and_Alert/
+If you are sensitive to memory usage and want to reduce memory consumption during the import process of a PK table, you can achieve this through the following configuration:
+be.conf
+l0_max_mem_usage = (some value which smaller than 104857600, default is 104857600)
+skip_pk_preload = true
+// Shared-nothing cluster
+transaction_apply_worker_count = (some value smaller than cpu core number, default is cpu core number)
+// Shared-data cluster
+transaction_publish_version_worker_count = (some value smaller than cpu core number, default is cpu core number)
+l0_max_mem_usage
+controls the max memory usage of persistent primary key index per tablet.
+transaction_apply_worker_count
+and
+transaction_publish_version_worker_count
+both control the max thread number which can be used for handling upsert and delete in primary key table.
+But you need to remember, reducing
+l0_max_mem_usage
+may increase I/O pressure, while decreasing
+transaction_apply_worker_count
+or
+transaction_publish_version_worker_count
+could slow down data ingestion.
+Tradeoff between compaction resource, data freshness and query latency
+â
+Compared to tables in other models, primary key tables require additional operations for primary key index lookups and delete vector generation during data import, updates, and deletions, which introduces extra resource overhead.
+Therefore, you need to make trade-offs among these three factors:
+Compaction resources limitation.
+Data freshness
+Query latency
+Data freshness & Query latency
+â
+If you want to get better data freshness and also better query latency, that means you will introduce high frequency writes, and also want to make sure they can be compacted as soon as possible.
+Then you will need more compaction resource to handle these writes:
+// shared-data
+be.conf
+compact_threads = 4
+// shared-nothing
+be.conf
+update_compaction_num_threads_per_disk = 1
+update_compaction_per_tablet_min_interval_seconds = 120
+You can increase
+compact_threads
+and
+update_compaction_num_threads_per_disk
+, or decease
+update_compaction_per_tablet_min_interval_seconds
+to introduce more compaction resource to handle high frequency writes.
+How do you know whether current compaction resource and setting can handle current high frequency writes? You can observe it in the following ways:
+For shared-data cluster, if compaction cannot keep up with the ingestion rate, it may lead to ingestion slowdown or even write failure errors and ingestion stop.
+a. Ingestion slowdown.
+You can use
+show proc /transactions/{db_name}/running';
+to check current running transactions, and if there is any slowdown message like :
+Partition's compaction score is larger than 100.0, delay commit for xxxms. You can try to increase compaction concurrency
+show up in ErrMsg field, that means ingestion slowdown happens.
+E.g.
+mysql
+>
+show
+proc
+'/transactions/test_pri_load_c/running'
+;
++
+---------------+----------------------------------------------+------------------+-------------------+--------------------+---------------------+------------+-------------+------------+----------------------------------------------------------------------------------------------------------------------------+--------------------+------------+-----------+--------+
+|
+TransactionId
+|
+Label
+|
+Coordinator
+|
+TransactionStatus
+|
+LoadJobSourceType
+|
+PrepareTime
+|
+CommitTime
+|
+PublishTime
+|
+FinishTime
+|
+Reason
+|
+ErrorReplicasCount
+|
+ListenerId
+|
+TimeoutMs
+|
+ErrMsg
+|
++
+---------------+----------------------------------------------+------------------+-------------------+--------------------+---------------------+------------+-------------+------------+----------------------------------------------------------------------------------------------------------------------------+--------------------+------------+-----------+--------+
+|
+1034
+|
+stream_load_d2753fbaa0b343acadd5f13de92d44c1
+|
+FE:
+172.26
+.94
+.39
+|
+PREPARE
+|
+FRONTEND_STREAMING
+|
+2024
+-
+10
+-
+24
+13
+:
+05
+:
+01
+|
+NULL
+|
+NULL
+|
+NULL
+|
+Partition
+'s compaction score
+is
+larger than
+100.0
+,
+delay
+commit
+for
+6513
+ms
+.
+You can try
+to
+increase compaction concurrency
+,
+|
+0
+|
+11054
+|
+86400000
+|
+|
++
+---------------+----------------------------------------------+------------------+-------------------+--------------------+---------------------+------------+-------------+------------+----------------------------------------------------------------------------------------------------------------------------+--------------------+------------+-----------+--------+
+b. Ingestion stoppage.
+If there is an ingestion error like :
+Failed to load data into partition xxx, because of too large compaction score, current/limit: xxx/xxx. You can reduce the loading job concurrency, or increase compaction concurrency
+That means Ingestion stop because of compaction can't catch up current high frequency writes.
+For shared-nothing cluster, there is no ingestion slowdown strategy, if the compaction can't catch up current high frequency writes. Ingestion will fail and return error message:
+Failed to load data into tablet xxx, because of too many versions, current/limit: xxx/xxx. You can reduce the loading job concurrency, or increase loading data batch size. If you are loading data with Routine Load, you can increase FE configs routine_load_task_consume_second and max_routine_load_batch_size.
+Data freshness & Compaction resources limitation
+â
+If you have limited compaction resources but still need to maintain sufficient data freshness, this means you'll need to sacrifice some query latency.
+You can make these config changes to achieve that:
+Shared-data cluster
+fe.conf
+lake_ingest_slowdown_threshold = xxx (default is 100, you can increase it)
+lake_compaction_score_upper_bound = xxx (default is 2000, you can increase it)
+The
+lake_ingest_slowdown_threshold
+parameter controls the threshold for triggering ingestion slowdown. When a partition's compaction score exceeds this threshold, the system will begin to slowdown data ingestion. Similarly,
+lake_compaction_score_upper_bound
+determines the threshold for triggering ingestion stoppage.
+Shared-nothing cluster
+be.conf
+tablet_max_versions = xxx (default is 1000, you can increase it)
+tablet_max_versions
+determines the threshold for triggering ingestion stoppage.
+By increasing these configurations, the system can accommodate more small data files and reduce compaction frequency, but this will also impact query latency.
+Query latency & Compaction resources limitation
+â
+If you want to achieve good query latency with limited compaction resources, you need to reduce write frequency and create larger data batches for ingestion.
+For specific implementation, please refer to the sections on different ingestion methods, which detail how to reduce ingestion frequency and increase batch size.
+What did you think of this doc?
+Send your review!
+Edit this page
+
+====================================================================================================
+FILE: Query Cache.txt
+====================================================================================================
+
+Query Cache
+Query Acceleration
+Caching
+Query Cache
+Version: Stable-3.5
+On this page
+Query Cache
+The query cache is a powerful feature of StarRocks that can greatly enhance the performance of aggregate queries. By storing the intermediate results of local aggregations in memory, the query cache can avoid unnecessary disk access and computation for new queries that are identical or similar to previous ones. With its query cache, StarRocks can deliver fast and accurate results for aggregate queries, saving time and resources and enabling better scalability. The query cache is especially useful for high concurrency scenarios where many users run similar queries on large and complex data sets.
+This feature is supported in shared-nothing clusters since v2.5 and in shared-data cluster since v3.4.0.
+In v2.5, the query cache supports only aggregate queries on single flat tables. Since v3.0, the query cache also supports aggregate queries on multiple tables joined in a star schema.
+Application scenarios
+â
+We recommend that you use the query cache in the following scenarios:
+You frequently run aggregate queries on individual flat tables or on multiple joined tables that are connected in a star schema.
+Most of your aggregate queries are non-GROUP BY aggregate queries and low-cardinality GROUP BY aggregate queries.
+Your data is loaded in append mode by time partition and can be categorized as hot data and cold data based on access frequency.
+The query cache supports queries that meet the following conditions:
+The query engine is Pipeline. To enable the Pipeline engine, set the session variable
+enable_pipeline_engine
+to
+true
+.
+NOTE
+Other query engines do not support the query cache.
+The queries are on native OLAP tables (from v2.5) or cloud-native tables (from v3.0). The query cache does not support queries on external tables. The query cache also supports queries whose plans require access to synchronous materialized views. However, the query cache does not support queries whose plans require access to asynchronous materialized views.
+The queries are aggregate queries on individual tables or on multiple joined tables.
+NOTE
+The query cache supports Broadcast Join and Bucket Shuffle Join.
+The query cache supports two tree structures that contain Join operators: Aggregation-Join and Join-Aggregation. Shuffle joins are not supported in the Aggregation-Join tree structure, while Hash joins are not supported in the Join-Aggregation tree structure.
+The queries do not include nondeterminstic functions such as
+rand
+,
+random
+,
+uuid
+, and
+sleep
+.
+The query cache supports queries on tables that use any of the following partition policies: Unpartitioned, Multi-Column Partitioned, and Single-Column Partitioned.
+Feature boundaries
+â
+The query cache is based on per-tablet computations of the Pipeline engine. Per-tablet computation means that a pipeline driver can process entire tablets one by one rather than processing a portion of a tablet or many tablets interleaved together. If the number of tablets that need to be processed by each individual BE for a query is greater than or equal to the number of pipeline drivers that are invoked to run this query, the query cache works. The number of pipeline drivers invoked represents the actual degree of parallelism (DOP). If the number of tablets is smaller than the number of pipeline drivers, each pipeline driver processes only a portion of a specific tablet. In this situation, per-tablet computation results cannot be produced, and therefore the query cache does not work.
+In StarRocks, an aggregate query consists of at least four stages. Per-Tablet computation results generated by AggregateNode in the first stage can be cached only when OlapScanNode and AggregateNode compute data from the same fragment. Per-Tablet computation results generated by AggregateNode in the other stages cannot be cached. For some DISTINCT aggregate queries, if the session variable
+cbo_cte_reuse
+is set to
+true
+, the query cache does not work when OlapScanNode, which produces data, and the stage-1 AggregateNode, which consumes the produced data, compute data from different fragments and are bridged by an ExchangeNode. The following two examples show scenarios in which CTE optimizations are performed and therefore the query cache does not work:
+The output columns are computed by using the aggregate function
+avg(distinct)
+.
+The output columns are computed by multiple DISTINCT aggregate functions.
+If your data is shuffled before aggregation, the query cache cannot accelerate the queries on that data.
+If the group-by columns or deduplicating columns of a table are high-cardinality columns, large results will be generated for aggregate queries on that table. In these cases, the queries will bypass the query cache at runtime.
+The query cache occupies a small amount of memory provided by the BE to save computation results. The size of the query cache defaults to 512 MB. Therefore, it is unsuitable for the query cache to save large-sized data items. Additionally, after you enable the query cache, query performance is decreased if the cache hit ratio is low. Therefore, if the size of computation results generated for a tablet exceeds the threshold specified by the
+query_cache_entry_max_bytes
+or
+query_cache_entry_max_rows
+parameter, the query cache no longer works for the query and the query is switched to Passthrough mode.
+How it works
+â
+When the query cache is enabled, each BE splits the local aggregation of a query into the following two stages:
+Per-tablet aggregation
+The BE processes each tablet individually. When the BE begins processing a tablet, it first probes the query cache to see if the intermediate result of aggregation on that tablet is in the query cache. If so (a cache hit), the BE directly fetches the intermediate result from the query cache. If no (a cache miss), the BE accesses the data on disk and performs local aggregation to compute the intermediate result. When the BE finished processing a tablet, it populates the query cache with the intermediate result of aggregation on that tablet.
+Inter-tablet aggregation
+The BE gathers the intermediate results from all tablets involved in the query and merges them into a final result.
+When a similar query is issued in the future, it can reuse the cached result for the previous query. For example, the query shown in the following figure involves three tablets (Tablets 0 through 2), and the intermediate result for the first tablet (Tablet 0) is already in the query cache. For this example, the BE can directly fetch the result for Tablet 0 from the query cache instead of accessing the data on disk. If the query cache is fully warmed up, it can contain the intermediate results for all three tablets and thus the BE does not need to access any data on disk.
+To free up extra memory, the query cache adopts a Least Recently Used (LRU)-based eviction policy to manage the cache entries in it. According to this eviction policy, when the amount of memory occupied by the query cache exceeds its predefined size (
+query_cache_capacity
+), the least recently used cache entries are evicted out of the query cache.
+NOTE
+In the future, StarRocks will also support a Time to Live (TTL)-based eviction policy based on which cache entries can be evicted out of the query cache.
+The FE determines whether each query needs to be accelerated by using the query cache and normalizes the queries to eliminate trivial literal details that have no effect on the semantics of queries.
+To prevent the performance penalty incurred by the bad cases of the query cache, the BE adopts an adaptive policy to bypass the query cache at runtime.
+Enable query cache
+â
+This section describes the parameters and session variables that are used to enable and configure the query cache.
+FE session variables
+â
+Variable
+Default value
+Can be dynamically configured
+Description
+enable_query_cache
+false
+Yes
+Specifies whether to enable the query cache. Valid values:
+true
+and
+false
+.
+true
+specifies to enable this feature, and
+false
+specifies to disable this feature. When the query cache is enabled, it works only for queries that meet the conditions specified in the "
+Application scenarios
+" section of this topic.
+query_cache_entry_max_bytes
+4194304
+Yes
+Specifies the threshold for triggering the Passthrough mode. Valid values:
+0
+to
+9223372036854775807
+. When the number of bytes or rows from the computation results of a specific tablet accessed by a query exceeds the threshold specified by the
+query_cache_entry_max_bytes
+or
+query_cache_entry_max_rows
+parameter, the query is switched to Passthrough mode.
+If the
+query_cache_entry_max_bytes
+or
+query_cache_entry_max_rows
+parameter is set to
+0
+, the Passthrough mode is used even when no computation results are generated from the involved tablets.
+query_cache_entry_max_rows
+409600
+Yes
+Same as above.
+BE parameters
+â
+You need to configure the following parameter in the BE configuration file
+be.conf
+. After you reconfigure this parameter for a BE, you must restart the BE to make the new parameter setting take effect.
+Parameter
+Required
+Description
+query_cache_capacity
+No
+Specifies the size of the query cache. Unit: bytes. The default size is 512 MB.
+Each BE has its own local query cache in memory, and it populates and probes only its own query cache.
+Note that the query cache size cannot be less than 4 MB. If the memory capacity of the BE is insufficient to provision your expected query cache size, you can increase the memory capacity of the BE.
+Engineered for maximum cache hit rate in all scenarios
+â
+Consider three scenarios where the query cache is still effective even when the queries are not identical literally. These three scenarios are:
+Semantically equivalent queries
+Queries with overlapping scanned partitions
+Queries against data with append-only data changes (no UPDATE or DELETE operations)
+Semantically equivalent queries
+â
+When two queries are similar, which does not mean that they must be literally equivalent but means that they contain semantically equivalent snippets in their execution plans, they are considered semantically equivalent and can reuse each other's computation results. In a broad sense, two queries are semantically equivalent if they query data from the same source, use the same computation method, and have the same execution plan. StarRocks applies the following rules to evaluate whether two queries are semantically equivalent:
+If the two queries contain multiple aggregations, they are evaluated as semantically equivalent as long as their first aggregations are semantically equivalent. For example, the following two queries, Q1 and Q2, both contain multiple aggregations, but their first aggregations are semantically equivalent. Therefore, Q1 and Q2 are evaluated as semantically equivalent.
+Q1
+SELECT
+(
+ifnull
+(
+sum
+(
+murmur_hash3_32
+(
+hour
+)
+)
+,
+0
+)
++
+ifnull
+(
+sum
+(
+murmur_hash3_32
+(
+k0
+)
+)
+,
+0
+)
++
+ifnull
+(
+sum
+(
+murmur_hash3_32
+(
+__c_0
+)
+)
+,
+0
+)
+)
+AS
+fingerprint
+FROM
+(
+SELECT
+date_trunc
+(
+'hour'
+,
+ts
+)
+AS
+hour
+,
+k0
+,
+sum
+(
+v1
+)
+AS
+__c_0
+FROM
+t0
+WHERE
+ts
+between
+'2022-01-03 00:00:00'
+and
+'2022-01-03 23:59:59'
+GROUP
+BY
+date_trunc
+(
+'hour'
+,
+ts
+)
+,
+k0
+)
+AS
+t
+;
+Q2
+SELECT
+date_trunc
+(
+'hour'
+,
+ts
+)
+AS
+hour
+,
+k0
+,
+sum
+(
+v1
+)
+AS
+__c_0
+FROM
+t0
+WHERE
+ts
+between
+'2022-01-03 00:00:00'
+and
+'2022-01-03 23:59:59'
+GROUP
+BY
+date_trunc
+(
+'hour'
+,
+ts
+)
+,
+k0
+If the two queries both belong to one of the following query types, they can be evaluated as semantically equivalent. Note that queries that include a HAVING clause cannot be evaluated as semantically equivalent to queries that do not include a HAVING clause. However, the inclusion of an ORDER BY or LIMIT clause does not affect the evaluation of whether two queries are semantically equivalent.
+GROUP BY aggregations
+SELECT
+<
+GroupByItems
+>
+,
+<
+AggFunctionItems
+>
+FROM
+<
+Table
+>
+WHERE
+<
+Predicates
+>
+[
+and
+<
+PartitionColumnRangePredicate
+>
+]
+GROUP
+BY
+<
+GroupByItems
+>
+[
+HAVING
+<
+HavingPredicate
+>
+]
+NOTE
+In the preceding example, the HAVING clause is optional.
+GROUP BY DISTINCT aggregations
+SELECT
+DISTINCT
+<
+GroupByItems
+>
+,
+<
+Items
+>
+FROM
+<
+Table
+>
+WHERE
+<
+Predicates
+>
+[
+and
+<
+PartitionColumnRangePredicate
+>
+]
+GROUP
+BY
+<
+GroupByItems
+>
+HAVING
+<
+HavingPredicate
+>
+NOTE
+In the preceding example, the HAVING clause is optional.
+Non-GROUP BY aggregations
+SELECT
+<
+AggFunctionItems
+>
+FROM
+<
+Table
+>
+WHERE
+<
+Predicates
+>
+[
+and
+<
+PartitionColumnRangePredicate
+>
+]
+Non-GROUP BY DISTINCT aggregations
+SELECT
+DISTINCT
+<
+Items
+>
+FROM
+<
+Table
+>
+WHERE
+<
+Predicates
+>
+[
+and
+<
+PartitionColumnRangePredicate
+>
+]
+If either query includes
+PartitionColumnRangePredicate
+,
+PartitionColumnRangePredicate
+is removed before the two queries are evaluated for semantic equivalence.
+PartitionColumnRangePredicate
+specifies one of the following types of predicates that reference a partitioning column:
+col between v1 and v2
+: The values of the partitioning column fall within the [v1, v2] range, in which
+v1
+and
+v2
+are constant expressions.
+v1 < col and col < v2
+: The values of the partitioning column fall within the (v1, v2) range, in which
+v1
+and
+v2
+are constant expressions.
+v1 < col and col <= v2
+: The values of the partitioning column fall within the (v1, v2] range, in which
+v1
+and
+v2
+are constant expressions.
+v1 <= col and col < v2
+: The values of the partitioning column fall within the [v1, v2) range, in which
+v1
+and
+v2
+are constant expressions.
+v1 <= col and col <= v2
+: The values of the partitioning column fall within the [v1, v2] range, in which
+v1
+and
+v2
+are constant expressions.
+If the output columns of the SELECT clauses of the two queries are the same after they are rearranged, the two queries are evaluated as semantically equivalent.
+If the output columns of the GROUP BY clauses of the two queries are the same after they are rearranged, the two queries are evaluated as semantically equivalent.
+If the remaining predicates of the WHERE clauses of the two queries are semantically equivalent after
+PartitionColumnRangePredicate
+is removed, the two queries are evaluated as semantically equivalent.
+If the predicates in the HAVING clauses of the two queries are semantically equivalent, the two queries are evaluated as semantically equivalent.
+Use the following table
+lineorder_flat
+as an example:
+CREATE
+TABLE
+`
+lineorder_flat
+`
+(
+`
+lo_orderdate
+`
+date
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_orderkey
+`
+int
+(
+11
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_linenumber
+`
+tinyint
+(
+4
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_custkey
+`
+int
+(
+11
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_partkey
+`
+int
+(
+11
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_suppkey
+`
+int
+(
+11
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_orderpriority
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_shippriority
+`
+tinyint
+(
+4
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_quantity
+`
+tinyint
+(
+4
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_extendedprice
+`
+int
+(
+11
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_ordtotalprice
+`
+int
+(
+11
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_discount
+`
+tinyint
+(
+4
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_revenue
+`
+int
+(
+11
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_supplycost
+`
+int
+(
+11
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_tax
+`
+tinyint
+(
+4
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_commitdate
+`
+date
+NOT
+NULL
+COMMENT
+""
+,
+`
+lo_shipmode
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+c_name
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+c_address
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+c_city
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+c_nation
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+c_region
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+c_phone
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+c_mktsegment
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+s_name
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+s_address
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+s_city
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+s_nation
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+s_region
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+s_phone
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+p_name
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+p_mfgr
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+p_category
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+p_brand
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+p_color
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+p_type
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+p_size
+`
+tinyint
+(
+4
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+p_container
+`
+varchar
+(
+100
+)
+NOT
+NULL
+COMMENT
+""
+)
+ENGINE
+=
+OLAP
+DUPLICATE
+KEY
+(
+`
+lo_orderdate
+`
+,
+`
+lo_orderkey
+`
+)
+COMMENT
+"olap"
+PARTITION
+BY
+RANGE
+(
+`
+lo_orderdate
+`
+)
+(
+PARTITION
+p1
+VALUES
+[
+(
+'0000-01-01'
+)
+,
+(
+'1993-01-01'
+)
+)
+,
+PARTITION
+p2
+VALUES
+[
+(
+'1993-01-01'
+)
+,
+(
+'1994-01-01'
+)
+)
+,
+PARTITION
+p3
+VALUES
+[
+(
+'1994-01-01'
+)
+,
+(
+'1995-01-01'
+)
+)
+,
+PARTITION
+p4
+VALUES
+[
+(
+'1995-01-01'
+)
+,
+(
+'1996-01-01'
+)
+)
+,
+PARTITION
+p5
+VALUES
+[
+(
+'1996-01-01'
+)
+,
+(
+'1997-01-01'
+)
+)
+,
+PARTITION
+p6
+VALUES
+[
+(
+'1997-01-01'
+)
+,
+(
+'1998-01-01'
+)
+)
+,
+PARTITION
+p7
+VALUES
+[
+(
+'1998-01-01'
+)
+,
+(
+'1999-01-01'
+)
+)
+)
+DISTRIBUTED
+BY
+HASH
+(
+`
+lo_orderkey
+`
+)
+PROPERTIES
+(
+"replication_num"
+=
+"3"
+,
+"colocate_with"
+=
+"groupxx1"
+,
+"storage_format"
+=
+"DEFAULT"
+,
+"enable_persistent_index"
+=
+"true"
+,
+"compression"
+=
+"LZ4"
+)
+;
+The following two queries, Q1 and Q2, on the table
+lineorder_flat
+are semantically equivalent after they are processed as follows:
+Rearrange the output columns of the SELECT statement.
+Rearrange the output columns of the GROUP BY clause.
+Remove the output columns of the ORDER BY clause.
+Rearrange the predicates in the WHERE clause.
+Add
+PartitionColumnRangePredicate
+.
+Q1
+SELECT
+sum
+(
+lo_revenue
+)
+,
+year
+(
+lo_orderdate
+)
+AS
+year
+,
+p_brand
+FROM
+lineorder_flat
+WHERE
+p_category
+=
+'MFGR#12'
+AND
+s_region
+=
+'AMERICA'
+GROUP
+BY
+year
+,
+p_brand
+ORDER
+BY
+year
+,
+p_brand
+;
+Q2
+SELECT
+year
+(
+lo_orderdate
+)
+AS
+year
+,
+p_brand
+,
+sum
+(
+lo_revenue
+)
+FROM
+lineorder_flat
+WHERE
+s_region
+=
+'AMERICA'
+AND
+p_category
+=
+'MFGR#12'
+AND
+lo_orderdate
+>=
+'1993-01-01'
+AND
+lo_orderdate
+<=
+'1993-12-31'
+GROUP
+BY
+p_brand
+,
+year
+(
+lo_orderdate
+)
+Semantic equivalence is evaluated based on the physical plans of queries. Therefore, literal differences in queries do not impact the evaluation for semantic equivalence. Additionally, constant expressions are removed from queries, and
+cast
+expressions are removed during query optimizations. Therefore, these expressions do not impact the evaluation for semantic equivalence. Thirdly, the aliases of columns and relations do not impact the evaluation for semantic equivalence either.
+Queries with overlapping scanned partitions
+â
+Query Cache supports predicate-based query splitting.
+Splitting queries based on predicate semantics help implement reuse of partial computation results. When a query contains a predicate that references the partitioning column of a table and the predicate specifies a value range, StarRocks can split the range into multiple intervals based on table partitioning. The computation results from each individual interval can be separately reused by other queries.
+Use the following table
+t0
+as an example:
+CREATE
+TABLE
+if
+not
+exists
+t0
+(
+ts
+DATETIME
+NOT
+NULL
+,
+k0
+VARCHAR
+(
+10
+)
+NOT
+NULL
+,
+k1
+BIGINT
+NOT
+NULL
+,
+v1 DECIMAL64
+(
+7
+,
+2
+)
+NOT
+NULL
+)
+ENGINE
+=
+OLAP
+DUPLICATE
+KEY
+(
+`
+ts
+`
+,
+`
+k0
+`
+,
+`
+k1
+`
+)
+COMMENT
+"OLAP"
+PARTITION
+BY
+RANGE
+(
+ts
+)
+(
+START
+(
+"2022-01-01 00:00:00"
+)
+END
+(
+"2022-02-01 00:00:00"
+)
+EVERY
+(
+INTERVAL
+1
+day
+)
+)
+DISTRIBUTED
+BY
+HASH
+(
+`
+ts
+`
+,
+`
+k0
+`
+,
+`
+k1
+`
+)
+PROPERTIES
+(
+"replication_num"
+=
+"3"
+,
+"storage_format"
+=
+"default"
+)
+;
+The table
+t0
+is partitioned by day, and the column
+ts
+is the table's partitioning column. Among the following four queries, Q2, Q3, and Q4 can reuse portions of the computation results cached for Q1:
+Q1
+SELECT
+date_trunc
+(
+'day'
+,
+ts
+)
+as
+day
+,
+sum
+(
+v0
+)
+FROM
+t0
+WHERE
+ts
+BETWEEN
+'2022-01-02 12:30:00'
+AND
+'2022-01-14 23:59:59'
+GROUP
+BY
+day
+;
+The value range specified by the predicate
+ts between '2022-01-02 12:30:00' and '2022-01-14 23:59:59'
+of Q1 can be split into the following intervals:
+1.
+[
+2022
+-
+01
+-
+02
+12
+:
+30
+:
+00
+,
+2022
+-
+01
+-
+03
+00
+:
+00
+:
+00
+)
+,
+2.
+[
+2022
+-
+01
+-
+03
+00
+:
+00
+:
+00
+,
+2022
+-
+01
+-
+04
+00
+:
+00
+:
+00
+)
+,
+3.
+[
+2022
+-
+01
+-
+04
+00
+:
+00
+:
+00
+,
+2022
+-
+01
+-
+05
+00
+:
+00
+:
+00
+)
+,
+.
+.
+.
+12.
+[
+2022
+-
+01
+-
+13
+00
+:
+00
+:
+00
+,
+2022
+-
+01
+-
+14
+00
+:
+00
+:
+00
+)
+,
+13.
+[
+2022
+-
+01
+-
+14
+00
+:
+00
+:
+00
+,
+2022
+-
+01
+-
+15
+00
+:
+00
+:
+00
+)
+,
+Q2
+SELECT
+date_trunc
+(
+'day'
+,
+ts
+)
+as
+day
+,
+sum
+(
+v0
+)
+FROM
+t0
+WHERE
+ts
+>=
+'2022-01-02 12:30:00'
+AND
+ts
+<
+'2022-01-05 00:00:00'
+GROUP
+BY
+day
+;
+Q2 can reuse the computation results within the following intervals of Q1:
+1.
+[
+2022
+-
+01
+-
+02
+12
+:
+30
+:
+00
+,
+2022
+-
+01
+-
+03
+00
+:
+00
+:
+00
+)
+,
+2.
+[
+2022
+-
+01
+-
+03
+00
+:
+00
+:
+00
+,
+2022
+-
+01
+-
+04
+00
+:
+00
+:
+00
+)
+,
+3.
+[
+2022
+-
+01
+-
+04
+00
+:
+00
+:
+00
+,
+2022
+-
+01
+-
+05
+00
+:
+00
+:
+00
+)
+,
+Q3
+SELECT
+date_trunc
+(
+'day'
+,
+ts
+)
+as
+day
+,
+sum
+(
+v0
+)
+FROM
+t0
+WHERE
+ts
+>=
+'2022-01-01 12:30:00'
+AND
+ts
+<=
+'2022-01-10 12:00:00'
+GROUP
+BY
+day
+;
+Q3 can reuse the computation results within the following intervals of Q1:
+2.
+[
+2022
+-
+01
+-
+03
+00
+:
+00
+:
+00
+,
+2022
+-
+01
+-
+04
+00
+:
+00
+:
+00
+)
+,
+3.
+[
+2022
+-
+01
+-
+04
+00
+:
+00
+:
+00
+,
+2022
+-
+01
+-
+05
+00
+:
+00
+:
+00
+)
+,
+.
+.
+.
+8.
+[
+2022
+-
+01
+-
+09
+00
+:
+00
+:
+00
+,
+2022
+-
+01
+-
+10
+00
+:
+00
+:
+00
+)
+,
+Q4
+SELECT
+date_trunc
+(
+'day'
+,
+ts
+)
+as
+day
+,
+sum
+(
+v0
+)
+FROM
+t0
+WHERE
+ts
+BETWEEN
+'2022-01-02 12:30:00'
+and
+'2022-01-02 23:59:59'
+GROUP
+BY
+day
+;
+Q4 can reuse the computation results within the following intervals of Q1:
+1.
+[
+2022
+-
+01
+-
+02
+12
+:
+30
+:
+00
+,
+2022
+-
+01
+-
+03
+00
+:
+00
+:
+00
+)
+,
+The support for reuse of partial computation results varies depending on the partitioning policy used, as described in the following table.
+Partitioning policy
+Support for reuse of partial computation results
+Unpartitioned
+Not supported
+Multi-Column Partitioned
+Not supported
+NOTE
+This feature may be supported in the future.
+Single-Column Partitioned
+Supported
+Queries against data with append-only data changes
+â
+Query Cache supports multi-version caching.
+As data loads are made, new versions of tablets are generated. Consequently, the cached computation results that are generated from the previous versions of the tablets become stale and lag behind the latest tablet versions. In this situation, the multi-version caching mechanism tries to merge the stale results saved in the query cache and the incremental versions of the tablets stored on disk into the final results of the tablets so that new queries can carry the latest tablet versions. Multi-version caching is constrained by table types, query types, and data update types.
+The support for multi-version caching varies depending on table types and query types, as described in the following table.
+Table type
+Query
+type
+Support for multi-version caching
+Duplicate Key table
+Queries on base tables
+Queries on synchronous materialized views
+Queries on base tables: supported in all situations except when incremental tablet versions contain data deletion records.
+Queries on synchronous materialized views: supported in all situations except when the GROUP BY, HAVING, or WHERE clauses of queries reference aggregation columns.
+Aggregate table
+Queries on base tables or queries on synchronous materialized views
+Supported in all situations except the following
+:The
+schemas of base tables contain the aggregate function
+replace
+.The GROUP BY, HAVING, or WHERE clauses of queries reference aggregation columns.Incremental tablet versions contain data deletion records.
+Unique Key table
+N/A
+Not supported. However, the query cache is supported.
+Primary Key table
+N/A
+Not supported. However, the query cache is supported.
+The impact of data update types on multi-version caching is as follows:
+Data deletions
+Multi-version caching cannot work if incremental versions of tablets contain delete operations.
+Data insertions
+If an empty version is generated for a tablet, the existing data of the tablet in the query cache remains valid and can still be retrieved.
+If a non-empty version is generated for a tablet, the existing data of the tablet in the query cache remains valid, but its version lags behind the latest version of the tablet. In this situation, StarRocks reads the incremental data generated from the version of the existing data to the latest version of the tablet, merges the existing data with the incremental data, and populates the merged data into the query cache.
+Schema changes and tablet truncations
+If the schema of a table is changed or specific tablets of the table are truncated, new tablets are generated for the table. As a result, the existing data of the tablets of the table in the query cache becomes invalid.
+Metrics
+â
+The profiles of queries for which the query cache works contain
+CacheOperator
+statistics.
+In the source plan of a query, if the pipeline contains
+OlapScanOperator
+, the names of
+OlapScanOperator
+and aggregate operators are prefixed with
+ML_
+to denote that the pipeline uses
+MultilaneOperator
+to perform per-tablet computations.
+CacheOperator
+is inserted preceding
+ML_CONJUGATE_AGGREGATE
+to process the logic that controls how the query cache runs in Passthrough, Populate, and Probe modes. The profile of the query contains the following
+CacheOperator
+metrics that help you understand the query cache usage.
+Metric
+Description
+CachePassthroughBytes
+The number of bytes generated in Passthrough mode.
+CachePassthroughChunkNum
+The number of chunks generated in Passthrough mode.
+CachePassthroughRowNum
+The number of rows generated in Passthrough mode.
+CachePassthroughTabletNum
+The number of tablets generated in Passthrough mode.
+CachePassthroughTime:
+The amount of computation time taken in Passthrough mode.
+CachePopulateBytes
+The number of bytes generated in Populate mode.
+CachePopulateChunkNum
+The number of chunks generated in Populate mode.
+CachePopulateRowNum
+The number of rows generated in Populate mode.
+CachePopulateTabletNum
+The number of tablets generated in Populate mode.
+CachePopulateTime
+The amount of computation time taken in Populate mode.
+CacheProbeBytes
+The number of bytes generated for cache hits in Probe mode.
+CacheProbeChunkNum
+The number of chunks generated for cache hits in Probe mode.
+CacheProbeRowNum
+The number of rows generated for cache hits in Probe mode.
+CacheProbeTabletNum
+The number of tablets generated for cache hits in Probe mode.
+CacheProbeTime
+The amount of computation time taken in Probe mode.
+CachePopulate
+XXX
+metrics provide statistics about query cache misses for which the query cache is updated.
+CachePassthrough
+XXX
+metrics provide statistics about query cache misses for which the query cache is not updated because the size of per-tablet computation results generated is large.
+CacheProbe
+XXX
+metrics provide statistics about query cache hits.
+In the multi-version caching mechanism,
+CachePopulate
+metrics and
+CacheProbe
+metrics may contain the same tablet statistics, and
+CachePassthrough
+metrics and
+CacheProbe
+metrics may also contain the same tablet statistics. For example, when StarRocks computes the data of each tablet, it hits the computation results generated on the historical version of the tablet. In this situation, StarRocks reads the incremental data generated from the historical version to the latest version of the tablet, computes the data, and merges the incremental data with the cached data. If the size of the computation results generated after the merging does not exceed the threshold specified by the
+query_cache_entry_max_bytes
+or
+query_cache_entry_max_rows
+parameter, the statistics of the tablet are collected into
+CachePopulate
+metrics. Otherwise, the statistics of the tablet are collected into
+CachePassthrough
+metrics.
+RESTful API operations
+â
+metrics |grep query_cache
+This API operation is used to query the metrics related to the query cache.
+curl
+-s
+http://
+<
+be_host
+>
+:
+<
+be_http_port
+>
+/metrics
+|
+grep
+query_cache
+# TYPE starrocks_be_query_cache_capacity gauge
+starrocks_be_query_cache_capacity
+536870912
+# TYPE starrocks_be_query_cache_hit_count gauge
+starrocks_be_query_cache_hit_count
+5084393
+# TYPE starrocks_be_query_cache_hit_ratio gauge
+starrocks_be_query_cache_hit_ratio
+0.984098
+# TYPE starrocks_be_query_cache_lookup_count gauge
+starrocks_be_query_cache_lookup_count
+5166553
+# TYPE starrocks_be_query_cache_usage gauge
+starrocks_be_query_cache_usage
+0
+# TYPE starrocks_be_query_cache_usage_ratio gauge
+starrocks_be_query_cache_usage_ratio
+0.000000
+api/query_cache/stat
+This API operation is used to query the usage of the query cache.
+curl
+http://
+<
+be_host
+>
+:
+<
+be_http_port
+>
+/api/query_cache/stat
+{
+"capacity"
+:
+536870912
+,
+"usage"
+:
+0
+,
+"usage_ratio"
+:
+0.0
+,
+"lookup_count"
+:
+5025124
+,
+"hit_count"
+:
+4943720
+,
+"hit_ratio"
+:
+0.983800598751394
+}
+api/query_cache/invalidate_all
+This API operation is used to clear the query cache.
+curl
+-XPUT
+http://
+<
+be_host
+>
+:
+<
+be_http_port
+>
+/api/query_cache/invalidate_all
+{
+"status"
+:
+"OK"
+}
+The parameters in the preceding API operations are as follows:
+be_host
+: the IP address of the node on which the BE resides.
+be_http_port
+: the HTTP port number of the node on which the BE resides.
+Precautions
+â
+StarRocks needs to populate the query cache with the computation results of queries that are initiated for the first time. As a result, the query performance may be slightly lower than expected, and the query latency is increased.
+If you configure a large query cache size, the amount of memory that can be provisioned to query evaluation on the BE is decreased. We recommend that the query cache size do not exceed 1/6 of the memory capacity provisioned to query evaluation.
+If the number of tablets that need to be processed is smaller than the value of
+pipeline_dop
+, the query cache does not work. To enable the query cache to work, you can set
+pipeline_dop
+to a smaller value such as
+1
+. From v3.0 onwards, StarRocks adaptively adjusts this parameter based on query parallelism.
+Examples
+â
+Dataset
+â
+Log in to your StarRocks cluster, go to the destination database, and run the following command to create a table named
+t0
+:
+CREATE
+TABLE
+t0
+(
+`
+ts
+`
+datetime
+NOT
+NULL
+COMMENT
+""
+,
+`
+k0
+`
+varchar
+(
+10
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+k1
+`
+char
+(
+6
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+v0
+`
+bigint
+(
+20
+)
+NOT
+NULL
+COMMENT
+""
+,
+`
+v1
+`
+decimal64
+(
+7
+,
+2
+)
+NOT
+NULL
+COMMENT
+""
+)
+ENGINE
+=
+OLAP
+DUPLICATE
+KEY
+(
+`
+ts
+`
+,
+`
+k0
+`
+,
+`
+k1
+`
+)
+COMMENT
+"OLAP"
+PARTITION
+BY
+RANGE
+(
+`
+ts
+`
+)
+(
+START
+(
+"2022-01-01 00:00:00"
+)
+END
+(
+"2022-02-01 00:00:00"
+)
+EVERY
+(
+INTERVAL
+1
+DAY
+)
+)
+DISTRIBUTED
+BY
+HASH
+(
+`
+ts
+`
+,
+`
+k0
+`
+,
+`
+k1
+`
+)
+PROPERTIES
+(
+"replication_num"
+=
+"3"
+,
+"storage_format"
+=
+"DEFAULT"
+,
+"enable_persistent_index"
+=
+"true"
+)
+;
+Insert the following data records into
+t0
+:
+INSERT
+INTO
+t0
+VALUES
+(
+'2022-01-11 20:42:26'
+,
+'n4AGcEqYp'
+,
+'hhbawx'
+,
+'799393174109549'
+,
+'8029.42'
+)
+,
+(
+'2022-01-27 18:17:59'
+,
+'i66lt'
+,
+'mtrtzf'
+,
+'100400167'
+,
+'10000.88'
+)
+,
+(
+'2022-01-28 20:10:44'
+,
+'z6'
+,
+'oqkeun'
+,
+'-58681382337'
+,
+'59881.87'
+)
+,
+(
+'2022-01-29 14:54:31'
+,
+'qQ'
+,
+'dzytua'
+,
+'-19682006834'
+,
+'43807.02'
+)
+,
+(
+'2022-01-31 08:08:11'
+,
+'qQ'
+,
+'dzytua'
+,
+'7970665929984223925'
+,
+'-8947.74'
+)
+,
+(
+'2022-01-15 00:40:58'
+,
+'65'
+,
+'hhbawx'
+,
+'4054945'
+,
+'156.56'
+)
+,
+(
+'2022-01-24 16:17:51'
+,
+'onqR3JsK1'
+,
+'udtmfp'
+,
+'-12962'
+,
+'-72127.53'
+)
+,
+(
+'2022-01-01 22:36:24'
+,
+'n4AGcEqYp'
+,
+'fabnct'
+,
+'-50999821'
+,
+'17349.85'
+)
+,
+(
+'2022-01-21 08:41:50'
+,
+'Nlpz1j3h'
+,
+'dzytua'
+,
+'-60162'
+,
+'287.06'
+)
+,
+(
+'2022-01-30 23:44:55'
+,
+''
+,
+'slfght'
+,
+'62891747919627339'
+,
+'8014.98'
+)
+,
+(
+'2022-01-18 19:14:28'
+,
+'z6'
+,
+'dzytua'
+,
+'-1113001726'
+,
+'73258.24'
+)
+,
+(
+'2022-01-30 14:54:59'
+,
+'z6'
+,
+'udtmfp'
+,
+'111175577438857975'
+,
+'-15280.41'
+)
+,
+(
+'2022-01-08 22:08:26'
+,
+'z6'
+,
+'ympyls'
+,
+'3'
+,
+'2.07'
+)
+,
+(
+'2022-01-03 08:17:29'
+,
+'Nlpz1j3h'
+,
+'udtmfp'
+,
+'-234492'
+,
+'217.58'
+)
+,
+(
+'2022-01-27 07:28:47'
+,
+'Pc'
+,
+'cawanm'
+,
+'-1015'
+,
+'-20631.50'
+)
+,
+(
+'2022-01-17 14:07:47'
+,
+'Nlpz1j3h'
+,
+'lbsvqu'
+,
+'2295574006197343179'
+,
+'93768.75'
+)
+,
+(
+'2022-01-31 14:00:12'
+,
+'onqR3JsK1'
+,
+'umlkpo'
+,
+'-227'
+,
+'-66199.05'
+)
+,
+(
+'2022-01-05 20:31:26'
+,
+'65'
+,
+'lbsvqu'
+,
+'684307'
+,
+'36412.49'
+)
+,
+(
+'2022-01-06 00:51:34'
+,
+'z6'
+,
+'dzytua'
+,
+'11700309310'
+,
+'-26064.10'
+)
+,
+(
+'2022-01-26 02:59:00'
+,
+'n4AGcEqYp'
+,
+'slfght'
+,
+'-15320250288446'
+,
+'-58003.69'
+)
+,
+(
+'2022-01-05 03:26:26'
+,
+'z6'
+,
+'cawanm'
+,
+'19841055192960542'
+,
+'-5634.36'
+)
+,
+(
+'2022-01-17 08:51:23'
+,
+'Pc'
+,
+'ghftus'
+,
+'35476438804110'
+,
+'13625.99'
+)
+,
+(
+'2022-01-30 18:56:03'
+,
+'n4AGcEqYp'
+,
+'lbsvqu'
+,
+'3303892099598'
+,
+'8.37'
+)
+,
+(
+'2022-01-22 14:17:18'
+,
+'i66lt'
+,
+'umlkpo'
+,
+'-27653110'
+,
+'-82306.25'
+)
+,
+(
+'2022-01-02 10:25:01'
+,
+'qQ'
+,
+'ghftus'
+,
+'-188567166'
+,
+'71442.87'
+)
+,
+(
+'2022-01-30 04:58:14'
+,
+'Pc'
+,
+'ympyls'
+,
+'-9983'
+,
+'-82071.59'
+)
+,
+(
+'2022-01-05 00:16:56'
+,
+'7Bh'
+,
+'hhbawx'
+,
+'43712'
+,
+'84762.97'
+)
+,
+(
+'2022-01-25 03:25:53'
+,
+'65'
+,
+'mtrtzf'
+,
+'4604107'
+,
+'-2434.69'
+)
+,
+(
+'2022-01-27 21:09:10'
+,
+'65'
+,
+'udtmfp'
+,
+'476134823953365199'
+,
+'38736.04'
+)
+,
+(
+'2022-01-11 13:35:44'
+,
+'65'
+,
+'qmwhvr'
+,
+'1'
+,
+'0.28'
+)
+,
+(
+'2022-01-03 19:13:07'
+,
+''
+,
+'lbsvqu'
+,
+'11'
+,
+'-53084.04'
+)
+,
+(
+'2022-01-20 02:27:25'
+,
+'i66lt'
+,
+'umlkpo'
+,
+'3218824416'
+,
+'-71393.20'
+)
+,
+(
+'2022-01-04 04:52:36'
+,
+'7Bh'
+,
+'ghftus'
+,
+'-112543071'
+,
+'-78377.93'
+)
+,
+(
+'2022-01-27 18:27:06'
+,
+'Pc'
+,
+'umlkpo'
+,
+'477'
+,
+'-98060.13'
+)
+,
+(
+'2022-01-04 19:40:36'
+,
+''
+,
+'udtmfp'
+,
+'433677211'
+,
+'-99829.94'
+)
+,
+(
+'2022-01-20 23:19:58'
+,
+'Nlpz1j3h'
+,
+'udtmfp'
+,
+'361394977'
+,
+'-19284.18'
+)
+,
+(
+'2022-01-05 02:17:56'
+,
+'Pc'
+,
+'oqkeun'
+,
+'-552390906075744662'
+,
+'-25267.92'
+)
+,
+(
+'2022-01-02 16:14:07'
+,
+'65'
+,
+'dzytua'
+,
+'132'
+,
+'2393.77'
+)
+,
+(
+'2022-01-28 23:17:14'
+,
+'z6'
+,
+'umlkpo'
+,
+'61'
+,
+'-52028.57'
+)
+,
+(
+'2022-01-12 08:05:44'
+,
+'qQ'
+,
+'hhbawx'
+,
+'-9579605666539132'
+,
+'-87801.81'
+)
+,
+(
+'2022-01-31 19:48:22'
+,
+'z6'
+,
+'lbsvqu'
+,
+'9883530877822'
+,
+'34006.42'
+)
+,
+(
+'2022-01-11 20:38:41'
+,
+''
+,
+'piszhr'
+,
+'56108215256366'
+,
+'-74059.80'
+)
+,
+(
+'2022-01-01 04:15:17'
+,
+'65'
+,
+'cawanm'
+,
+'-440061829443010909'
+,
+'88960.51'
+)
+,
+(
+'2022-01-05 07:26:09'
+,
+'qQ'
+,
+'umlkpo'
+,
+'-24889917494681901'
+,
+'-23372.12'
+)
+,
+(
+'2022-01-29 18:13:55'
+,
+'Nlpz1j3h'
+,
+'cawanm'
+,
+'-233'
+,
+'-24294.42'
+)
+,
+(
+'2022-01-10 00:49:45'
+,
+'Nlpz1j3h'
+,
+'ympyls'
+,
+'-2396341'
+,
+'77723.88'
+)
+,
+(
+'2022-01-29 08:02:58'
+,
+'n4AGcEqYp'
+,
+'slfght'
+,
+'45212'
+,
+'93099.78'
+)
+,
+(
+'2022-01-28 08:59:21'
+,
+'onqR3JsK1'
+,
+'oqkeun'
+,
+'76'
+,
+'-78641.65'
+)
+,
+(
+'2022-01-26 14:29:39'
+,
+'7Bh'
+,
+'umlkpo'
+,
+'176003552517'
+,
+'-99999.96'
+)
+,
+(
+'2022-01-03 18:53:37'
+,
+'7Bh'
+,
+'piszhr'
+,
+'3906151622605106'
+,
+'55723.01'
+)
+,
+(
+'2022-01-04 07:08:19'
+,
+'i66lt'
+,
+'ympyls'
+,
+'-240097380835621'
+,
+'-81800.87'
+)
+,
+(
+'2022-01-28 14:54:17'
+,
+'Nlpz1j3h'
+,
+'slfght'
+,
+'-69018069110121'
+,
+'90533.64'
+)
+,
+(
+'2022-01-22 07:48:53'
+,
+'Pc'
+,
+'ympyls'
+,
+'22396835447981344'
+,
+'-12583.39'
+)
+,
+(
+'2022-01-22 07:39:29'
+,
+'Pc'
+,
+'uqkghp'
+,
+'10551305'
+,
+'52163.82'
+)
+,
+(
+'2022-01-08 22:39:47'
+,
+'Nlpz1j3h'
+,
+'cawanm'
+,
+'67905472699'
+,
+'87831.30'
+)
+,
+(
+'2022-01-05 14:53:34'
+,
+'7Bh'
+,
+'dzytua'
+,
+'-779598598706906834'
+,
+'-38780.41'
+)
+,
+(
+'2022-01-30 17:34:41'
+,
+'onqR3JsK1'
+,
+'oqkeun'
+,
+'346687625005524'
+,
+'-62475.31'
+)
+,
+(
+'2022-01-29 12:14:06'
+,
+''
+,
+'qmwhvr'
+,
+'3315'
+,
+'22076.88'
+)
+,
+(
+'2022-01-05 06:47:04'
+,
+'Nlpz1j3h'
+,
+'udtmfp'
+,
+'-469'
+,
+'42747.17'
+)
+,
+(
+'2022-01-19 15:20:20'
+,
+'7Bh'
+,
+'lbsvqu'
+,
+'347317095885'
+,
+'-76393.49'
+)
+,
+(
+'2022-01-08 16:18:22'
+,
+'z6'
+,
+'fghmcd'
+,
+'2'
+,
+'90315.60'
+)
+,
+(
+'2022-01-02 00:23:06'
+,
+'Pc'
+,
+'piszhr'
+,
+'-3651517384168400'
+,
+'58220.34'
+)
+,
+(
+'2022-01-12 08:23:31'
+,
+'onqR3JsK1'
+,
+'udtmfp'
+,
+'5636394870355729225'
+,
+'33224.25'
+)
+,
+(
+'2022-01-28 10:46:44'
+,
+'onqR3JsK1'
+,
+'oqkeun'
+,
+'-28102078612755'
+,
+'6469.53'
+)
+,
+(
+'2022-01-23 23:16:11'
+,
+'onqR3JsK1'
+,
+'ghftus'
+,
+'-707475035515433949'
+,
+'63422.66'
+)
+,
+(
+'2022-01-03 05:32:31'
+,
+'z6'
+,
+'hhbawx'
+,
+'-45'
+,
+'-49680.52'
+)
+,
+(
+'2022-01-27 03:24:33'
+,
+'qQ'
+,
+'qmwhvr'
+,
+'375943906057539870'
+,
+'-66092.96'
+)
+,
+(
+'2022-01-25 20:07:22'
+,
+'7Bh'
+,
+'slfght'
+,
+'1'
+,
+'72440.21'
+)
+,
+(
+'2022-01-04 16:07:24'
+,
+'qQ'
+,
+'uqkghp'
+,
+'751213107482249'
+,
+'16417.31'
+)
+,
+(
+'2022-01-23 19:22:00'
+,
+'Pc'
+,
+'hhbawx'
+,
+'-740731249600493'
+,
+'88439.40'
+)
+,
+(
+'2022-01-05 09:04:20'
+,
+'7Bh'
+,
+'cawanm'
+,
+'23602'
+,
+'302.44'
+)
+;
+Query examples
+â
+The statistics of query cache-related metrics in this section are examples and are for reference only.
+Query cache works for local aggregations at stage 1
+â
+This includes three situations:
+The query accesses only a single tablet.
+The query accesses multiple tablets from multiple partitions of a table that itself comprises a colocated group, and data does not need to be shuffled for aggregations.
+The query accesses multiple tablets from the same partition of a table, and data does not need to be shuffled for aggregations.
+Query example:
+SELECT
+date_trunc
+(
+'hour'
+,
+ts
+)
+AS
+hour
+,
+k0
+,
+sum
+(
+v1
+)
+AS
+__c_0
+FROM
+t0
+WHERE
+ts
+between
+'2022-01-03 00:00:00'
+and
+'2022-01-03 23:59:59'
+GROUP
+BY
+date_trunc
+(
+'hour'
+,
+ts
+)
+,
+k0
+The following figure shows the query cache-related metrics in the query profile.
+Query cache does not work for remote aggregations at stage 1
+â
+When aggregations on multiple tablets are forcibly performed at stage 1, data is first shuffled and then aggregated.
+Query example:
+SET
+new_planner_agg_stage
+=
+1
+;
+SELECT
+date_trunc
+(
+'hour'
+,
+ts
+)
+AS
+hour
+,
+v0
+%
+2
+AS
+is_odd
+,
+sum
+(
+v1
+)
+AS
+__c_0
+FROM
+t0
+WHERE
+ts
+between
+'2022-01-03 00:00:00'
+and
+'2022-01-03 23:59:59'
+GROUP
+BY
+date_trunc
+(
+'hour'
+,
+ts
+)
+,
+is_odd
+Query cache works for local aggregations at stage 2
+â
+This includes three situations:
+The aggregations at stage 2 of the query are compiled to compare the same type of data. The first aggregation is a local aggregation. After the first aggregation is complete, the results generated from the first aggregation are computed to perform a second aggregation, which is a global aggregation.
+The query is a SELECT DISTINCT query.
+The query includes one of the following DISTINCT aggregate functions:
+sum(distinct)
+,
+count(distinct)
+, and
+avg(distinct)
+. In most cases, aggregations are performed at stage 3 or 4 for such a query. However, you can run
+set new_planner_agg_stage = 1
+to forcibly perform aggregations at stage 2 for the query. If the query contains
+avg(distinct)
+and you want to perform aggregations at stage, you also need to run
+set cbo_cte_reuse = false
+to disable CTE optimizations.
+Query example:
+SELECT
+date_trunc
+(
+'hour'
+,
+ts
+)
+AS
+hour
+,
+v0
+%
+2
+AS
+is_odd
+,
+sum
+(
+v1
+)
+AS
+__c_0
+FROM
+t0
+WHERE
+ts
+between
+'2022-01-03 00:00:00'
+and
+'2022-01-03 23:59:59'
+GROUP
+BY
+date_trunc
+(
+'hour'
+,
+ts
+)
+,
+is_odd
+The following figure shows the query cache-related metrics in the query profile.
+Query cache works for local aggregations at stage 3
+â
+The query is a GROUP BY aggregate query that includes a single DISTINCT aggregate function.
+The supported DISTINCT aggregate functions are
+sum(distinct)
+,
+count(distinct)
+, and
+avg(distinct)
+.
+NOTICE
+If the query includes
+avg(distinct)
+, you also need to run
+set cbo_cte_reuse = false
+to disable CTE optimizations.
+Query example:
+SELECT
+date_trunc
+(
+'hour'
+,
+ts
+)
+AS
+hour
+,
+v0
+%
+2
+AS
+is_odd
+,
+sum
+(
+distinct
+v1
+)
+AS
+__c_0
+FROM
+t0
+WHERE
+ts
+between
+'2022-01-03 00:00:00'
+and
+'2022-01-03 23:59:59'
+GROUP
+BY
+date_trunc
+(
+'hour'
+,
+ts
+)
+,
+is_odd
+;
+The following figure shows the query cache-related metrics in the query profile.
+Query cache works for local aggregations at stage 4
+â
+The query is a non-GROUP BY aggregate query that includes a single DISTINCT aggregate function. Such queries include classical queries that remove deduplicate data.
+Query example:
+SELECT
+count
+(
+distinct
+v1
+)
+AS
+__c_0
+FROM
+t0
+WHERE
+ts
+between
+'2022-01-03 00:00:00'
+and
+'2022-01-03 23:59:59'
+The following figure shows the query cache-related metrics in the query profile.
+Cached results are reused for two queries whose first aggregations are semantically equivalent
+â
+Use the following two queries, Q1 and Q2, as an example. Q1 and Q2 both include multiple aggregations, but their first aggregations are semantically equivalent. Therefore, Q1 and Q2 are evaluated as semantically equivalent, and can reuse each other's computation results saved in the query cache.
+Q1
+SELECT
+(
+ifnull
+(
+sum
+(
+murmur_hash3_32
+(
+hour
+)
+)
+,
+0
+)
++
+ifnull
+(
+sum
+(
+murmur_hash3_32
+(
+k0
+)
+)
+,
+0
+)
++
+ifnull
+(
+sum
+(
+murmur_hash3_32
+(
+__c_0
+)
+)
+,
+0
+)
+)
+AS
+fingerprint
+FROM
+(
+SELECT
+date_trunc
+(
+'hour'
+,
+ts
+)
+AS
+hour
+,
+k0
+,
+sum
+(
+v1
+)
+AS
+__c_0
+FROM
+t0
+WHERE
+ts
+between
+'2022-01-03 00:00:00'
+and
+'2022-01-03 23:59:59'
+GROUP
+BY
+date_trunc
+(
+'hour'
+,
+ts
+)
+,
+k0
+)
+AS
+t
+;
+Q2
+SELECT
+date_trunc
+(
+'hour'
+,
+ts
+)
+AS
+hour
+,
+k0
+,
+sum
+(
+v1
+)
+AS
+__c_0
+FROM
+t0
+WHERE
+ts
+between
+'2022-01-03 00:00:00'
+and
+'2022-01-03 23:59:59'
+GROUP
+BY
+date_trunc
+(
+'hour'
+,
+ts
+)
+,
+k0
+The following figure shows the
+CachePopulate
+metrics for Q1.
+The following figure shows the
+CacheProbe
+metrics for Q2.
+Query cache does not work for DISTINCT queries for which CTE optimizations are enabled
+â
+After you run
+set cbo_cte_reuse = true
+to enable CTE optimizations, the computation results for specific queries that include DISTINCT aggregate functions cannot be cached. A few examples are as follows:
+The query contains a single DISTINCT aggregate function
+avg(distinct)
+:
+SELECT
+avg
+(
+distinct
+v1
+)
+AS
+__c_0
+FROM
+t0
+WHERE
+ts
+between
+'2022-01-03 00:00:00'
+and
+'2022-01-03 23:59:59'
+;
+The query contains multiple DISTINCT aggregate functions that reference the same column:
+SELECT
+avg
+(
+distinct
+v1
+)
+AS
+__c_0
+,
+sum
+(
+distinct
+v1
+)
+AS
+__c_1
+,
+count
+(
+distinct
+v1
+)
+AS
+__c_2
+FROM
+t0
+WHERE
+ts
+between
+'2022-01-03 00:00:00'
+and
+'2022-01-03 23:59:59'
+;
+The query contains multiple DISTINCT aggregate functions that each reference a different column:
+SELECT
+sum
+(
+distinct
+v1
+)
+AS
+__c_1
+,
+count
+(
+distinct
+v0
+)
+AS
+__c_2
+FROM
+t0
+WHERE
+ts
+between
+'2022-01-03 00:00:00'
+and
+'2022-01-03 23:59:59'
+;
+Best practices
+â
+When you create your table, specify a reasonable partition description and a reasonable distribution method, including:
+Choose a single DATE-type column as the partition column. If the table contains more than one DATE-type column, choose the column whose values roll forward as data is incrementally ingested and that is used to define your interesting time ranges of queries.
+Choose a proper partition width. The data ingested most recently may modify the latest partitions of the table. Therefore, the cache entries involving the latest partitions are unstable and are apt to be invalidated.
+Specify a bucket number that is several dozen in the distribution description of the table creation statement. If the bucket number is exceedingly small, the query cache cannot take effect when the number of tablets that need to be processed by the BE is less than the value of
+pipeline_dop
+.
+What did you think of this doc?
+Send your review!
+Edit this page
+
+====================================================================================================
+FILE: Query Feedback.txt
+====================================================================================================
+
+Query Feedback
+Query Acceleration
+Query Feedback
+Version: Stable-3.5
+On this page
+Query Feedback
+Experimental feature
+Advice on use of experimental features
+This topic introduces the Query Feedback feature, its application scenarios, and how to optimize query plans based on feedback from execution statistics using Query Plan Advisor.
+StarRocks supports the Query Feedback feature from v3.4.0 onwards.
+Overview
+â
+Query Feedback is a framework and a critical component of Cost-based Optimizer (CBO). It records the execution statistics during query execution, and reuses it in subsequent queries with similar query plans to help CBO generate optimized query plans. CBO optimizes query plans based on estimated statistics, so when statistical information is outdated or inaccurate, it may select inefficient query plans (bad plans), such as broadcasting a large table or misordering the left and right tables. These bad plans can cause query execution timeouts, excessive resource consumption, or even system crashes.
+Workflow
+â
+The workflow of Query Feedback-based plan optimization consists of three stages:
+Observation
+: BE or CN records the major metrics (including
+InputRows
+and
+OutputRows
+) of PlanNode in each query plan.
+Analysis
+: For slow queries that exceed the configured threshold and queries that are manually marked to be analyzed, the system will analyze execution details at critical nodes to identify optimization opportunities in the current query plan after the query finishes and before the result is returned. FE compares the query plan with the execution statistics, and checks if the query is a slow query caused by an abnormal query plan. While FE analyzes the inaccurate statistics, it will generate a SQL tuning guide for each query, instruct CBO to optimize the query dynamically, and recommend strategies to improve the performance.
+Optimization
+: After CBO generates a physical plan, it will search for any existing tuning guide that applies to the plan. If there is one, CBO will dynamically optimize the plan according to the guide and strategies, correcting problematic sections, and thereby eliminating the impact on the query performance due to the repetitive usage of bad query plans. The execution time of the optimized plan is compared to that of the original plan to evaluate the effectiveness of the tuning.
+Usage
+â
+Controlled by system variable
+enable_plan_advisor
+(Default:
+true
+), Query Plan Advisor is enabled by default for slow queries, that is, queries with execution time exceeding the threshold defined in the FE configuration item
+slow_query_analyze_threshold
+(Default:
+5
+seconds).
+In addition, you can manually analyze a specific query or enable automatic analysis for all queries executed.
+Manually analyze a specific query
+â
+You can manually analyze a specific query statement even if its execution time does not exceed
+slow_query_analyze_threshold
+.
+ALTER
+PLAN
+ADVISOR
+ADD
+<
+query_statement
+>
+Example:
+ALTER
+PLAN
+ADVISOR
+ADD
+SELECT
+COUNT
+(
+*
+)
+FROM
+(
+SLECT
+*
+FROM
+c1_skew_left_over t1
+JOIN
+(
+SELECT
+*
+FROM
+c1_skew_left_over
+WHERE
+c1
+=
+'c'
+)
+t2
+ON
+t1
+.
+c2
+=
+t2
+.
+c2
+WHERE
+t1
+.
+c1
+>
+'c'
+)
+t
+;
+Enable automatic analysis for all queries
+â
+To enable automatic analysis for all queries, you need to set the system variable
+enable_plan_analyzer
+(Default:
+false) to
+true`.
+SET
+enable_plan_analyzer
+=
+true
+;
+Show the tuning guides on the current FE
+â
+Each FE maintains its own record of tuning guides. You can use the following statement to view the tuning guides generated for the entitled queries on the current FE:
+SHOW
+PLAN
+ADVISOR
+Check if Tuning Guide takes effect
+â
+Execute
+EXPLAIN
+against the query statement. In the EXPLAIN string, the message
+Plan had been tuned by Plan Advisor
+indicates that a tuning guide has been applied to the corresponding query.
+Example:
+EXPLAIN
+SELECT
+COUNT
+(
+*
+)
+FROM
+(
+SLECT
+*
+FROM
+c1_skew_left_over t1
+JOIN
+(
+SELECT
+*
+FROM
+c1_skew_left_over
+WHERE
+c1
+=
+'c'
+)
+t2
+ON
+t1
+.
+c2
+=
+t2
+.
+c2
+WHERE
+t1
+.
+c1
+>
+'c'
+)
+t
+;
++
+-----------------------------------------------------------------------------------------------+
+|
+Explain
+String
+|
++
+-----------------------------------------------------------------------------------------------+
+|
+Plan
+had been tuned
+by
+Plan
+Advisor
+.
+|
+|
+Original query id:
+8
+e010cf4
+-
+b178
+-
+11
+ef
+-
+8
+aa4
+-
+8
+a5075cec65e
+|
+|
+Original
+time
+cost:
+148
+ms
+|
+|
+1
+: LeftChildEstimationErrorTuningGuide
+|
+|
+Reason:
+left
+child
+statistics
+of
+JoinNode
+5
+had been overestimated
+.
+|
+|
+Advice: Adjust the distribution
+join
+execution
+type
+and
+join
+plan
+to
+improve the performance
+.
+|
+|
+|
+|
+PLAN
+FRAGMENT
+0
+|
+|
+OUTPUT EXPRS:
+9
+: count
+|
+|
+PARTITION
+: UNPARTITIONED
+Delete the tuning guide of a specific query
+â
+You can delete the tuning guide of a specific query based on the query ID returned from
+SHOW PLAN ADVISOR
+.
+ALTER
+PLAN
+ADVISOR
+DROP
+<
+query_id
+>
+Example:
+ALTER
+PLAN
+ADVISOR
+DROP
+"8e010cf4-b178-11ef-8aa4-8a5075cec65e"
+;
+Clear all tuning guides on the current FE
+â
+To clear all tuning guides on the current FE, execute the following statement:
+TRUNCATE
+PLAN
+ADVISOR
+Use Cases
+â
+Currently, Query Feedback is primarily used to optimize the following scenarios:
+Optimizing the order of left and right sides in local Join nodes
+Optimizing the execution method of local Join nodes (e.g., switching from Broadcast to Shuffle)
+For cases with significant aggregation potential, enforcing
+pre_aggregation
+mode to maximize data aggregation in the first phase
+The tuning guides are mainly based on metrics
+Runtime Exec Node Input/Output Rows
+and FE
+statistics estimated rows
+. Since the current tuning thresholds are relatively conservative, you are encouraged to leverage Query Feedback to check for potential performance improvements if issues are observed in the Query Profile or EXPLAIN string.
+Below are three common user cases.
+Case 1: Incorrect Join Order
+â
+Original Bad Plan:
+small
+left
+table
+inner
+join
+large
+table
+(
+broadcast
+)
+Optimized Plan:
+large
+left
+table
+inner
+join
+small
+right
+table
+(
+broadcast
+)
+Cause
+The issue might be caused by outdated or missing statistics, which leads the Cost-Based Optimizer (CBO) to generate an incorrect plan based on inaccurate data.
+Solution
+During query execution, the system compares the
+input/output rows
+and
+statistics estimated rows
+of Left Child and Right Child, generating tuning guides. Upon re-execution, the system automatically adjusts the Join order.
+Case 2: Incorrect Join Execution Method
+â
+Original Bad Plan:
+large
+left
+table1
+inner
+join
+large
+right
+table2
+(
+broadcast
+)
+Optimized Plan:
+large
+left
+table1
+(
+shuffle
+)
+inner
+join
+large
+right
+table2
+(
+shuffle
+)
+Cause
+The issue may result from data skew. When the right table has many partitions and one of them contains disproportionately large amounts of data, the system may incorrectly estimate the row count of right table after predicates are applied.
+Solution
+During query execution, the system compares the
+input/output rows
+and
+statistics estimated rows
+of Left Child and Right Child, generating tuning guides. After optimization, the Join method is adjusted from Broadcast Join to Shuffle Join.
+Case 3: Inefficient First-Phase Pre-aggregation Mode
+â
+Symptom
+For data with good aggregation potential, the
+auto
+mode of First-phase aggregation may only aggregate a small amount of local data, missing the opportunity for performance gains.
+Solution
+During query execution, the system collects
+Input/Output Rows
+for both local and global aggregations. Based on historical data, it evaluates the potential of the aggregation columns. If the potential is significant, the system enforces the use of
+pre_aggregation
+mode in local aggregations, maximizing data aggregation in the first phase and improving overall query performance.
+Limitations
+â
+A tuning guide can only be used for the exact same query for which it was generated. It is not applicable to queries with the same pattern but different parameters.
+Each FE manages its Query Plan Advisor independently, and synchronization across FE nodes is not supported. If the same query is submitted to different FE nodes, the tuning results may vary.
+Query Plan Advisor uses an in-memory cache structure:
+When the number of tuning guides exceeds the limit, expired tuning guides are automatically evicted.
+The default limit of tuning guides is 300 and the persistence of historical tuning guides is not supported.
+What did you think of this doc?
+Send your review!
+Edit this page
+

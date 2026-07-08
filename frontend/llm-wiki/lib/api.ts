@@ -4,9 +4,12 @@ import type {
   ApiErrorBody,
   ChatRequest,
   ChatResponse,
+  CreateQAInput,
   Document,
   DocumentType,
   KnowledgeSpace,
+  QAItem,
+  UpdateQAInput,
   UpdateWikiInput,
   Wiki,
   WikiSummary,
@@ -129,6 +132,34 @@ export function approveWiki(wikiId: number) {
 export function rejectWiki(wikiId: number) {
   return wiki<{ wiki_id: number; status: string }>(`/api/v1/wikis/${wikiId}/reject`, {
     method: "POST",
+  });
+}
+
+// ─── QA (답변관리) ──────────────────────────────────────────────────────────
+
+export function listQAs(knowledgeSpaceId: number) {
+  return wiki<{ items: QAItem[] }>(
+    `/api/v1/knowledge-spaces/${knowledgeSpaceId}/qas`
+  ).then((r) => r.items);
+}
+
+export function createQA(knowledgeSpaceId: number, input: CreateQAInput) {
+  return wiki<QAItem>(`/api/v1/knowledge-spaces/${knowledgeSpaceId}/qas`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateQA(qaId: number, input: UpdateQAInput) {
+  return wiki<QAItem>(`/api/v1/qas/${qaId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteQA(qaId: number) {
+  return wiki<{ success: boolean; qa_id: number }>(`/api/v1/qas/${qaId}`, {
+    method: "DELETE",
   });
 }
 
@@ -259,6 +290,39 @@ export function useRejectWiki(knowledgeSpaceId: number | null) {
       queryClient.invalidateQueries({ queryKey: ["wikis", knowledgeSpaceId] });
       queryClient.invalidateQueries({ queryKey: ["wiki", wikiId] });
     },
+  });
+}
+
+export function useQAs(knowledgeSpaceId: number | null) {
+  return useQuery({
+    queryKey: ["qas", knowledgeSpaceId],
+    queryFn: () => listQAs(knowledgeSpaceId as number),
+    enabled: knowledgeSpaceId != null,
+  });
+}
+
+export function useCreateQA(knowledgeSpaceId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateQAInput) => createQA(knowledgeSpaceId as number, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["qas", knowledgeSpaceId] }),
+  });
+}
+
+export function useUpdateQA(knowledgeSpaceId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ qaId, input }: { qaId: number; input: UpdateQAInput }) =>
+      updateQA(qaId, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["qas", knowledgeSpaceId] }),
+  });
+}
+
+export function useDeleteQA(knowledgeSpaceId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (qaId: number) => deleteQA(qaId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["qas", knowledgeSpaceId] }),
   });
 }
 

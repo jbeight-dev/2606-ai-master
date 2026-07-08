@@ -66,6 +66,26 @@ export interface UpdateWikiInput {
   markdown: string;
 }
 
+// QA (답변관리)
+
+export interface QAItem {
+  qa_id: number;
+  question: string;
+  answer: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateQAInput {
+  question: string;
+  answer: string;
+}
+
+export interface UpdateQAInput {
+  question: string;
+  answer: string;
+}
+
 // Assistant chat (assistant-service, separate from wiki-builder-service)
 
 export interface ChatRequest {

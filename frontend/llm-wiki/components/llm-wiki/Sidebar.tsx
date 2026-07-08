@@ -8,6 +8,7 @@ import {
   ChevronRight,
   FileText,
   MessageSquare,
+  MessageSquareText,
   Search,
   ClipboardCheck,
   Sparkles,
@@ -18,10 +19,11 @@ import { useWikis } from "@/lib/api";
 import { useActiveSpace } from "@/lib/active-space";
 
 const NAV_ITEMS = [
+  { href: "/assistant", icon: MessageSquare, label: "AI Assistant", sub: "Assistant" },
   { href: "/register", icon: FileText, label: "문서 등록", sub: "Documents" },
   { href: "/review", icon: ClipboardCheck, label: "AI 변환 결과", sub: "Review" },
   { href: "/explorer", icon: Search, label: "Wiki 탐색", sub: "Explorer" },
-  { href: "/assistant", icon: MessageSquare, label: "AI Assistant", sub: "Assistant" },
+  { href: "/qa", icon: MessageSquareText, label: "답변관리", sub: "QA" },
 ];
 
 export function Sidebar() {
@@ -40,7 +42,7 @@ export function Sidebar() {
       } min-h-screen`}
     >
       {/* Brand */}
-      <div className={`flex items-center justify-between px-3.5 py-4 ${collapsed ? "justify-center px-2" : ""}`}>
+      <div className={`flex items-center justify-between h-16 px-3.5 ${collapsed ? "justify-center px-2" : ""}`}>
         <div className={`flex items-center gap-2.5 p-1.5 ${collapsed ? "justify-center" : ""}`}>
           <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
             <Sparkles className="h-4 w-4" />
@@ -63,7 +65,7 @@ export function Sidebar() {
         )}
       </div>
 
-      <Separator className="mt-3.5" />
+      <Separator />
 
       {collapsed && (
         <button

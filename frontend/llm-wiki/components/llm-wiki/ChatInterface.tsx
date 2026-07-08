@@ -141,7 +141,7 @@ export function ChatInterface({ knowledgeBased }: ChatInterfaceProps) {
                   handleSend();
                 }
               }}
-              placeholder="설비 위키에 대해 물어보세요..."
+              placeholder="Knowledge Space에서 찾고 싶은 내용을 입력하세요"
               rows={1}
               disabled={sendMutation.isPending}
               className="flex-1 max-h-32"

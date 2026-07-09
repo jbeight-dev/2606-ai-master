@@ -20,6 +20,7 @@ export interface Document {
   file_name: string;
   document_type: DocumentType;
   status: DocumentStatus;
+  analysis_elapsed_ms?: number | null;
   created_at?: string;
 }
 
@@ -43,6 +44,18 @@ export interface SimulatedAnalysisStep {
 
 export type WikiStatus = "DRAFT" | "APPROVED" | "REJECTED";
 
+export const REJECTION_REASONS = [
+  "핵심 내용 누락",
+  "사실 오류",
+  "구조 부적절",
+  "너무 요약됨",
+  "불필요한 내용 포함",
+  "문서 유형 오분류",
+  "그 외 사유",
+] as const;
+
+export type RejectionReason = (typeof REJECTION_REASONS)[number];
+
 export interface WikiSummary {
   wiki_id: number;
   title: string;
@@ -50,6 +63,8 @@ export interface WikiSummary {
   status: WikiStatus;
   version: number;
   tags: string[];
+  rejection_reasons?: string[];
+  rejection_comment?: string | null;
 }
 
 export interface Wiki extends WikiSummary {

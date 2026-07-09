@@ -65,9 +65,24 @@ class WikiService:
         db.refresh(wiki)
         return wiki
 
-    def reject(self, db: Session, wiki_id: int) -> Wiki:
+    def reject(self, db: Session, wiki_id: int, reasons: List[str], comment: str) -> Wiki:
         wiki = self.get_by_id(db, wiki_id)
         wiki.status = WikiStatus.REJECTED
+        wiki.rejection_reasons = reasons
+        wiki.rejection_comment = comment
+        db.commit()
+        db.refresh(wiki)
+        return wiki
+
+    def regenerate_content(self, db: Session, wiki: Wiki, data: Dict[str, Any]) -> Wiki:
+        wiki.title = data.get("title") or wiki.title
+        wiki.summary = data.get("summary", wiki.summary)
+        wiki.markdown = data.get("markdown") or wiki.markdown
+        wiki.tags = data.get("tags", wiki.tags)
+        wiki.version += 1
+        wiki.status = WikiStatus.DRAFT
+        wiki.rejection_reasons = None
+        wiki.rejection_comment = None
         db.commit()
         db.refresh(wiki)
         return wiki

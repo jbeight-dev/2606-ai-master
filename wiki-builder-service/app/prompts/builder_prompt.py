@@ -1,3 +1,5 @@
+from typing import List
+
 WIKI_BUILDER_SYSTEM_PROMPT = """당신은 AI Wiki Builder이다.
 역할
 - 업로드된 문서를 분석하여 AI가 검색하기 쉬운 Wiki 형태의 Knowledge로 변환한다.
@@ -72,4 +74,39 @@ GENERATE_WIKI_PROMPT = """아래 문서의 섹션을 기반으로 Wiki를 생성
       "tags": ["태그1", "태그2"]
     }}
   ]
+}}"""
+
+
+def build_regeneration_instruction(rejection_reasons: List[str], rejection_comment: str) -> str:
+    reasons_block = "\n".join(f"- {reason}" for reason in rejection_reasons)
+    return (
+        "기존 Wiki가 반려되었습니다.\n\n"
+        "반려 사유:\n"
+        f"{reasons_block}\n\n"
+        "검수자 의견:\n"
+        f"\"{rejection_comment}\"\n\n"
+        "원본 문서를 다시 확인하여,\n"
+        "누락된 내용을 보완하고 Wiki를 재작성하세요.\n"
+        "원문에 없는 내용은 추가하지 마세요."
+    )
+
+
+REGENERATE_WIKI_PROMPT = """{regeneration_instruction}
+
+문서 유형: {document_type}
+
+원본 문서:
+{document_text}
+
+기존 Wiki 제목: {previous_title}
+기존 Wiki 요약: {previous_summary}
+기존 Wiki 본문:
+{previous_markdown}
+
+반드시 다음 JSON 형식으로만 응답하라:
+{{
+  "title": "Wiki 제목",
+  "summary": "한 줄 요약",
+  "markdown": "# Wiki 제목\\n\\n## 개요\\n...",
+  "tags": ["태그1", "태그2"]
 }}"""

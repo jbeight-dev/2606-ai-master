@@ -17,47 +17,44 @@ const STEP_BG: Record<SimulatedAnalysisStep["status"], string> = {
   pending: "bg-muted",
 };
 
+const STEP_LABEL_COLOR: Record<SimulatedAnalysisStep["status"], string> = {
+  completed: "text-foreground",
+  in_progress: "text-primary",
+  pending: "text-muted-foreground",
+};
+
+const CONNECTOR_COLOR: Record<SimulatedAnalysisStep["status"], string> = {
+  completed: "bg-green-500",
+  in_progress: "bg-primary",
+  pending: "bg-border",
+};
+
 export function AnalysisProgress({ steps }: AnalysisProgressProps) {
   return (
-    <div className="space-y-3">
+    <ol className="flex items-start">
       {steps.map((step, idx) => {
         const isLast = idx === steps.length - 1;
         return (
-          <div key={step.id} className="flex gap-3">
-            <div className="flex flex-col items-center">
+          <li key={step.id} className="relative flex flex-1 flex-col items-start">
+            {!isLast && (
               <div
-                className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${STEP_BG[step.status]}`}
-              >
-                {STEP_ICON[step.status]}
-              </div>
-              {!isLast && (
-                <div
-                  className={`w-0.5 flex-1 mt-1 ${
-                    step.status === "completed" ? "bg-green-500" : "bg-border"
-                  }`}
-                  style={{ minHeight: "16px" }}
-                />
-              )}
+                className={`absolute top-4 left-8 right-0 h-0.5 ${CONNECTOR_COLOR[steps[idx + 1].status]}`}
+                aria-hidden="true"
+              />
+            )}
+            <div
+              className={`relative z-10 flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${STEP_BG[step.status]}`}
+            >
+              {STEP_ICON[step.status]}
             </div>
-            <div className="pb-4">
-              <p
-                className={`text-sm font-medium ${
-                  step.status === "pending"
-                    ? "text-muted-foreground"
-                    : step.status === "in_progress"
-                    ? "text-primary"
-                    : "text-foreground"
-                }`}
-              >
-                {step.label}
-              </p>
-              {step.status === "in_progress" && (
-                <p className="text-xs text-muted-foreground mt-0.5">처리 중...</p>
-              )}
-            </div>
-          </div>
+            <p
+              className={`mt-1.5 text-[11px] text-left leading-tight pr-2 ${STEP_LABEL_COLOR[step.status]}`}
+            >
+              {step.label}
+            </p>
+          </li>
         );
       })}
-    </div>
+    </ol>
   );
 }

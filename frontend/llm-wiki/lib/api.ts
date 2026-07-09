@@ -129,8 +129,26 @@ export function approveWiki(wikiId: number) {
   });
 }
 
-export function rejectWiki(wikiId: number) {
-  return wiki<{ wiki_id: number; status: string }>(`/api/v1/wikis/${wikiId}/reject`, {
+export function rejectWiki(wikiId: number, reasons: string[], comment: string) {
+  return wiki<{
+    wiki_id: number;
+    status: string;
+    rejection_reasons?: string[];
+    rejection_comment?: string | null;
+  }>(`/api/v1/wikis/${wikiId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reasons, comment }),
+  });
+}
+
+export function regenerateWiki(wikiId: number) {
+  return wiki<{
+    wiki_id: number;
+    status: string;
+    version: number;
+    title: string;
+    summary?: string | null;
+  }>(`/api/v1/wikis/${wikiId}/regenerate`, {
     method: "POST",
   });
 }
@@ -285,7 +303,19 @@ export function useApproveWiki(knowledgeSpaceId: number | null) {
 export function useRejectWiki(knowledgeSpaceId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (wikiId: number) => rejectWiki(wikiId),
+    mutationFn: ({ wikiId, reasons, comment }: { wikiId: number; reasons: string[]; comment: string }) =>
+      rejectWiki(wikiId, reasons, comment),
+    onSuccess: (_, { wikiId }) => {
+      queryClient.invalidateQueries({ queryKey: ["wikis", knowledgeSpaceId] });
+      queryClient.invalidateQueries({ queryKey: ["wiki", wikiId] });
+    },
+  });
+}
+
+export function useRegenerateWiki(knowledgeSpaceId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (wikiId: number) => regenerateWiki(wikiId),
     onSuccess: (_, wikiId) => {
       queryClient.invalidateQueries({ queryKey: ["wikis", knowledgeSpaceId] });
       queryClient.invalidateQueries({ queryKey: ["wiki", wikiId] });

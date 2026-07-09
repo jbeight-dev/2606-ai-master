@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.schemas.request import UpdateWikiRequest
+from app.schemas.request import UpdateWikiRequest, RejectWikiRequest
 from app.schemas.response import (
     WikiListResponse,
     WikiListItem,
@@ -10,9 +10,11 @@ from app.schemas.response import (
     WikiUpdateResponse,
     WikiApproveResponse,
     WikiRejectResponse,
+    WikiRegenerateResponse,
 )
 from app.services.wiki_service import wiki_service
 from app.services.qdrant_service import qdrant_service
+from app.services.analysis_service import document_analysis_service
 
 router = APIRouter(tags=["Wikis"])
 
@@ -33,6 +35,8 @@ def list_wikis(knowledge_space_id: int, db: Session = Depends(get_db)):
                 status=w.status.value,
                 version=w.version,
                 tags=w.tags or [],
+                rejection_reasons=w.rejection_reasons or [],
+                rejection_comment=w.rejection_comment,
             )
             for w in wikis
         ],
@@ -53,6 +57,8 @@ def get_wiki(wiki_id: int, db: Session = Depends(get_db)):
         status=w.status.value,
         version=w.version,
         tags=w.tags or [],
+        rejection_reasons=w.rejection_reasons or [],
+        rejection_comment=w.rejection_comment,
         created_at=w.created_at,
         updated_at=w.updated_at,
     )
@@ -78,7 +84,18 @@ def approve_wiki(wiki_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/api/v1/wikis/{wiki_id}/reject", response_model=WikiRejectResponse)
-def reject_wiki(wiki_id: int, db: Session = Depends(get_db)):
-    w = wiki_service.reject(db, wiki_id)
+def reject_wiki(wiki_id: int, request: RejectWikiRequest, db: Session = Depends(get_db)):
+    w = wiki_service.reject(db, wiki_id, request.reasons, request.comment)
     qdrant_service.update_wiki_status(wiki_id, "REJECTED")
-    return WikiRejectResponse(success=True, wiki_id=w.id, status=w.status.value)
+    return WikiRejectResponse(
+        success=True,
+        wiki_id=w.id,
+        status=w.status.value,
+        rejection_reasons=w.rejection_reasons or [],
+        rejection_comment=w.rejection_comment,
+    )
+
+
+@router.post("/api/v1/wikis/{wiki_id}/regenerate", response_model=WikiRegenerateResponse)
+def regenerate_wiki(wiki_id: int, db: Session = Depends(get_db)):
+    return document_analysis_service.regenerate(db, wiki_id)

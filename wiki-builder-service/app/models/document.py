@@ -28,6 +28,7 @@ class Document(Base):
     file_path = Column(String(1000), nullable=False)
     document_type = Column(Enum(DocumentType), nullable=False, default=DocumentType.UNKNOWN)
     status = Column(Enum(DocumentStatus), nullable=False, default=DocumentStatus.UPLOADED)
+    analysis_elapsed_ms = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

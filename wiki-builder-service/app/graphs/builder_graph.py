@@ -2,9 +2,8 @@ import json
 from typing import TypedDict, List, Dict, Any, Optional
 from langgraph.graph import StateGraph, START, END
 
-from app.core.config import settings
 from app.core.logger import logger
-from app.core.exception import RateLimitException, APIUnavailableException
+from app.core.llm_client import call_llm
 from app.prompts.builder_prompt import (
     WIKI_BUILDER_SYSTEM_PROMPT,
     CLASSIFY_DOCUMENT_PROMPT,
@@ -25,40 +24,6 @@ class WikiBuilderState(TypedDict, total=False):
 
     wikis: List[Dict[str, Any]]
     error: Optional[str]
-
-
-def _get_gemini_client():
-    from google import genai
-    if not settings.GOOGLE_API_KEY:
-        return None
-    return genai.Client(api_key=settings.GOOGLE_API_KEY)
-
-
-def call_gemini(system_prompt: str, user_prompt: str, *, temperature: float = 0.0) -> Optional[str]:
-    from google.genai import errors, types
-    client = _get_gemini_client()
-    if client is None:
-        return None
-    try:
-        response = client.models.generate_content(
-            model=settings.LLM_MODEL,
-            contents=user_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=temperature,
-            ),
-        )
-        return response.text
-    except errors.APIError as e:
-        logger.error(f"Gemini API error: {e}")
-        if e.code == 429:
-            raise RateLimitException()
-        elif e.code == 503:
-            raise APIUnavailableException()
-        return None
-    except Exception as e:
-        logger.error(f"Gemini API error: {e}")
-        return None
 
 
 def _parse_json_response(content: str) -> Dict[str, Any]:
@@ -92,7 +57,7 @@ def classify_document(state: WikiBuilderState) -> WikiBuilderState:
         document_name=document_name,
         document_text=state["document_text"][:3000],
     )
-    result_text = call_gemini(WIKI_BUILDER_SYSTEM_PROMPT, user_prompt)
+    result_text = call_llm(WIKI_BUILDER_SYSTEM_PROMPT, user_prompt)
 
     if result_text is None:
         return {**state, "classified_type": "UNKNOWN"}
@@ -111,7 +76,7 @@ def analyze_structure(state: WikiBuilderState) -> WikiBuilderState:
         document_type=state.get("classified_type", "UNKNOWN"),
         document_text=state["document_text"][:4000],
     )
-    result_text = call_gemini(WIKI_BUILDER_SYSTEM_PROMPT, user_prompt)
+    result_text = call_llm(WIKI_BUILDER_SYSTEM_PROMPT, user_prompt)
 
     if result_text is None:
         return {**state, "sections": []}
@@ -132,7 +97,7 @@ def generate_wiki(state: WikiBuilderState) -> WikiBuilderState:
         sections=sections_str,
         document_text=state["document_text"][:6000],
     )
-    result_text = call_gemini(WIKI_BUILDER_SYSTEM_PROMPT, user_prompt)
+    result_text = call_llm(WIKI_BUILDER_SYSTEM_PROMPT, user_prompt)
 
     if result_text is None:
         return {**state, "wikis": []}

@@ -83,8 +83,9 @@ class DocumentService:
         except Exception as e:
             raise WikiBuilderException(f"파일 읽기 오류: {e}", status_code=500)
 
-    def mark_analyzed(self, db: Session, document: Document) -> Document:
+    def mark_analyzed(self, db: Session, document: Document, elapsed_ms: int) -> Document:
         document.status = DocumentStatus.ANALYZED
+        document.analysis_elapsed_ms = elapsed_ms
         db.commit()
         db.refresh(document)
         return document

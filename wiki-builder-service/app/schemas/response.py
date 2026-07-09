@@ -45,6 +45,7 @@ class DocumentListItem(BaseModel):
     file_name: str
     document_type: str
     status: str
+    analysis_elapsed_ms: Optional[int] = None
     created_at: Optional[datetime] = None
 
     class Config:
@@ -72,6 +73,8 @@ class WikiListItem(BaseModel):
     status: str
     version: int
     tags: List[str] = []
+    rejection_reasons: List[str] = []
+    rejection_comment: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -93,6 +96,8 @@ class WikiDetailResponse(BaseModel):
     status: str
     version: int
     tags: List[str] = []
+    rejection_reasons: List[str] = []
+    rejection_comment: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -118,6 +123,17 @@ class WikiRejectResponse(BaseModel):
     success: bool = True
     wiki_id: int
     status: str
+    rejection_reasons: List[str] = []
+    rejection_comment: Optional[str] = None
+
+
+class WikiRegenerateResponse(BaseModel):
+    success: bool = True
+    wiki_id: int
+    status: str
+    version: int
+    title: str
+    summary: Optional[str] = None
 
 
 class QAListItem(BaseModel):

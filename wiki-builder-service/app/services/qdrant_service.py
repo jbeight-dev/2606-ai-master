@@ -84,6 +84,19 @@ class QdrantService:
         except Exception as e:
             raise WikiBuilderException(f"Qdrant 저장 오류: {e}", status_code=500)
 
+    def delete_by_wiki_id(self, wiki_id: int) -> None:
+        try:
+            client = self._get_client()
+            client.delete(
+                collection_name=settings.QDRANT_COLLECTION_NAME,
+                points_selector=Filter(
+                    must=[FieldCondition(key="wiki_id", match=MatchValue(value=wiki_id))]
+                ),
+            )
+            logger.info(f"[qdrant_service] Deleted vectors for wiki_id={wiki_id}")
+        except Exception as e:
+            logger.warning(f"[qdrant_service] Failed to delete wiki vectors: {e}")
+
     def update_wiki_status(self, wiki_id: int, status: str) -> None:
         try:
             client = self._get_client()

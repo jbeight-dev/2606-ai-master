@@ -46,6 +46,7 @@ def list_documents(knowledge_space_id: int, db: Session = Depends(get_db)):
                 file_name=d.file_name,
                 document_type=d.document_type.value,
                 status=d.status.value,
+                analysis_elapsed_ms=d.analysis_elapsed_ms,
                 created_at=d.created_at,
             )
             for d in docs

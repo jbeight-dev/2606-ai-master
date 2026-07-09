@@ -21,6 +21,8 @@ class Wiki(Base):
     summary = Column(Text, nullable=True)
     markdown = Column(Text, nullable=False)
     status = Column(Enum(WikiStatus), nullable=False, default=WikiStatus.DRAFT)
+    rejection_reasons = Column(JSON, nullable=True, default=list)
+    rejection_comment = Column(Text, nullable=True)
     version = Column(Integer, nullable=False, default=1)
     tags = Column(JSON, nullable=True, default=list)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -28,3 +30,4 @@ class Wiki(Base):
 
     knowledge_space = relationship("KnowledgeSpace", back_populates="wikis")
     document = relationship("Document", back_populates="wikis")
+    regeneration_history = relationship("WikiRegenerationHistory", back_populates="wiki")

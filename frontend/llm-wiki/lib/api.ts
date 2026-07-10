@@ -60,18 +60,18 @@ const assistant = <T>(path: string, init?: RequestInit) =>
 // ─── Knowledge Spaces ───────────────────────────────────────────────────────
 
 export function createKnowledgeSpace(input: { name: string; description?: string }) {
-  return wiki<KnowledgeSpace & { knowledge_space_id: number }>("/api/v1/knowledge-spaces", {
+  return wiki<KnowledgeSpace>("/api/v1/knowledge-spaces", {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
 export function listKnowledgeSpaces() {
-  return wiki<{ items: KnowledgeSpace[] }>("/api/v1/knowledge-spaces").then((r) => r.items);
+  return wiki<KnowledgeSpace[]>("/api/v1/knowledge-spaces");
 }
 
 export function deleteKnowledgeSpace(knowledgeSpaceId: number) {
-  return wiki<{ success: boolean }>(`/api/v1/knowledge-spaces/${knowledgeSpaceId}`, {
+  return wiki<KnowledgeSpace>(`/api/v1/knowledge-spaces/${knowledgeSpaceId}`, {
     method: "DELETE",
   });
 }

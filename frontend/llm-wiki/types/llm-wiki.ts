@@ -3,7 +3,7 @@
 export type KnowledgeSpaceStatus = "ACTIVE" | "INACTIVE";
 
 export interface KnowledgeSpace {
-  knowledge_space_id: number;
+  id: number;
   name: string;
   description?: string | null;
   status: KnowledgeSpaceStatus;

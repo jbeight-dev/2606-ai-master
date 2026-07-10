@@ -24,7 +24,7 @@ export function DeleteSpaceConfirmModal({ open, onOpenChange, space }: DeleteSpa
 
   const handleConfirmDelete = () => {
     if (!space) return;
-    deleteSpace.mutate(space.knowledge_space_id, {
+    deleteSpace.mutate(space.id, {
       onSuccess: () => {
         onOpenChange(false);
       },

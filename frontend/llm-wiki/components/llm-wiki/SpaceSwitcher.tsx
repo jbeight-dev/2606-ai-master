@@ -16,7 +16,7 @@ export function SpaceSwitcher() {
   const { data: spaces = [] } = useKnowledgeSpaces();
   const { activeSpaceId, activeSpace, setActiveSpaceId } = useActiveSpace();
 
-  const spaceToDeleteInfo = spaces.find((s) => s.knowledge_space_id === spaceToDelete) || null;
+  const spaceToDeleteInfo = spaces.find((s) => s.id === spaceToDelete) || null;
 
   if (!activeSpace) return null;
 
@@ -30,9 +30,9 @@ export function SpaceSwitcher() {
         >
           <div
             className="w-6.5 h-6.5 rounded-md bg-primary text-primary-foreground flex items-center justify-center font-semibold text-[10px] shrink-0"
-            title={`Knowledge Space ID: ${activeSpace.knowledge_space_id}`}
+            title={`Knowledge Space ID: ${activeSpace.id}`}
           >
-            #{activeSpace.knowledge_space_id}
+            #{activeSpace.id}
           </div>
           <div className="flex items-baseline gap-2 min-w-0">
             <h2 className="text-sm font-semibold text-foreground shrink-0">{activeSpace.name}</h2>
@@ -49,14 +49,14 @@ export function SpaceSwitcher() {
               Knowledge Spaces
             </p>
             {spaces.map((space) => (
-              <div key={space.knowledge_space_id} className="relative group">
+              <div key={space.id} className="relative group">
                 <button
                   onClick={() => {
-                    setActiveSpaceId(space.knowledge_space_id);
+                    setActiveSpaceId(space.id);
                     setMenuOpen(false);
                   }}
                   className={`w-full flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                    space.knowledge_space_id === activeSpaceId ? "bg-accent" : "hover:bg-accent/50"
+                    space.id === activeSpaceId ? "bg-accent" : "hover:bg-accent/50"
                   }`}
                 >
                   <div className="w-7 h-7 rounded-md bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold shrink-0">
@@ -65,7 +65,7 @@ export function SpaceSwitcher() {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium truncate text-foreground">{space.name}</p>
                   </div>
-                  {space.knowledge_space_id === activeSpaceId && (
+                  {space.id === activeSpaceId && (
                     <Check className="h-3.5 w-3.5 text-primary shrink-0" />
                   )}
                 </button>
@@ -73,7 +73,7 @@ export function SpaceSwitcher() {
                   onClick={(e) => {
                     e.stopPropagation();
                     setDeleteSpaceOpen(true);
-                    setSpaceToDelete(space.knowledge_space_id);
+                    setSpaceToDelete(space.id);
                     setMenuOpen(false);
                   }}
                   className="absolute inset-y-0 right-2 my-auto h-fit opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground"

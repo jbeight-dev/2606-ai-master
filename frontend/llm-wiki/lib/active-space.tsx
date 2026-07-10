@@ -49,7 +49,7 @@ export function ActiveSpaceProvider({ children }: { children: React.ReactNode })
   const { data: spaces = [] } = useKnowledgeSpaces();
 
   const activeSpace = useMemo(
-    () => spaces.find((s) => s.knowledge_space_id === activeSpaceId) ?? null,
+    () => spaces.find((s) => s.id === activeSpaceId) ?? null,
     [spaces, activeSpaceId]
   );
 

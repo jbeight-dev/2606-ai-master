@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Boxes } from "lucide-react";
 import { useKnowledgeSpaces } from "@/lib/api";
@@ -12,6 +12,12 @@ export function OnboardingSpaces() {
   const { setActiveSpaceId } = useActiveSpace();
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && spaces.length === 0) {
+      router.replace("/spaces/new");
+    }
+  }, [isLoading, spaces.length, router]);
 
   function selectSpace(id: number) {
     setActiveSpaceId(id);
@@ -31,7 +37,7 @@ export function OnboardingSpaces() {
         </p>
       </div>
 
-      {isLoading ? (
+      {isLoading || spaces.length === 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {[1, 2].map((i) => (
             <div key={i} className="h-24 rounded-2xl bg-muted animate-pulse" />
@@ -41,8 +47,8 @@ export function OnboardingSpaces() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {spaces.map((space) => (
             <button
-              key={space.knowledge_space_id}
-              onClick={() => selectSpace(space.knowledge_space_id)}
+              key={space.id}
+              onClick={() => selectSpace(space.id)}
               className="text-left bg-card border border-border rounded-2xl p-5 flex gap-3.5 items-start hover:shadow-md transition-shadow"
             >
               <div className="w-10.5 h-10.5 rounded-xl bg-primary text-primary-foreground flex items-center justify-center font-semibold shrink-0">

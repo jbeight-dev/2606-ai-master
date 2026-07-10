@@ -32,7 +32,7 @@ export function CreateSpaceModal({ open, onOpenChange }: CreateSpaceModalProps) 
       { name: trimmed, description: description.trim() || undefined },
       {
         onSuccess: (space) => {
-          setActiveSpaceId(space.knowledge_space_id);
+          setActiveSpaceId(space.id);
           setName("");
           setDescription("");
           onOpenChange(false);
